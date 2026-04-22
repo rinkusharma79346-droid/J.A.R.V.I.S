@@ -30,25 +30,19 @@ jobs:
         echo "sdk.dir=${ANDROID_SDK_ROOT}" > local.properties
         echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY || 'PLACEHOLDER_KEY' }}" >> local.properties
 
-    - name: Grant execute permission for gradlew
-      run: chmod +x gradlew || true
-
     - name: Generate Gradle Wrapper
-      run: |
-        mkdir -p gradle/wrapper
-        cat > gradlew << 'EOF'
-        #!/bin/sh
-        exec gradle "$@"
-        EOF
-        chmod +x gradlew
+      run: gradle wrapper --gradle-version 8.5
+
+    - name: Grant execute permission for gradlew
+      run: chmod +x gradlew
 
     - name: Build Debug APK
-      run: gradle assembleDebug
+      run: ./gradlew assembleDebug
       env:
         GRADLE_OPTS: -Xmx4g -Dorg.gradle.daemon=false
 
     - name: Build Release APK
-      run: gradle assembleRelease
+      run: ./gradlew assembleRelease
       env:
         GRADLE_OPTS: -Xmx4g -Dorg.gradle.daemon=false
 

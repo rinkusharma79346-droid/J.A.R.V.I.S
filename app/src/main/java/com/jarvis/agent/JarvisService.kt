@@ -175,7 +175,7 @@ class JarvisService : AccessibilityService() {
                     val scaled = Bitmap.createScaledBitmap(bitmap, halfW, halfH, true)
 
                     val baos = ByteArrayOutputStream()
-                    scaled.compress(Bitmap.CompressFormat.PNG, 70, baos)
+                    scaled.compress(Bitmap.CompressFormat.JPEG, 70, baos)
                     resultBase64 = Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP)
 
                     bitmap.recycle()

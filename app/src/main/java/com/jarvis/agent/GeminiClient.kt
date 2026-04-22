@@ -60,7 +60,7 @@ STRATEGY:
                         })
                         add(JsonObject().apply {
                             add("inlineData", JsonObject().apply {
-                                addProperty("mimeType", "image/png")
+                                addProperty("mimeType", "image/jpeg")
                                 addProperty("data", base64Screenshot)
                             })
                         })

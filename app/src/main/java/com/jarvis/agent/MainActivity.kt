@@ -45,5 +45,11 @@ class MainActivity : AppCompatActivity() {
                 binding.tvStep.text = "Step: $it/50"
             }
         }
+
+        lifecycleScope.launch {
+            JarvisService.currentAction.collectLatest {
+                binding.tvAction.text = "Action: $it"
+            }
+        }
     }
 }
