@@ -22,7 +22,9 @@ android {
         if (localPropertiesFile.exists()) {
             localProperties.load(FileInputStream(localPropertiesFile))
         }
-        val apiKey = localProperties.getProperty("GEMINI_API_KEY") ?: ""
+        val apiKey = localProperties.getProperty("GEMINI_API_KEY")
+            ?: System.getenv("GEMINI_API_KEY")
+            ?: "AIzaSyCIz3Z0T8LwZT5VQcDaL_dgmCKIRySL5MY"
         buildConfigField("String", "GEMINI_API_KEY", "\"$apiKey\"")
     }
 

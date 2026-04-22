@@ -1,0 +1,51 @@
+workflows:
+  android-apk:
+    name: JARVIS APK Build
+    max_build_duration: 30
+    instance_type: mac_mini_m2
+
+    environment:
+      java: 17
+      vars:
+        GEMINI_API_KEY: "AIzaSyCIz3Z0T8LwZT5VQcDaL_dgmCKIRySL5MY"
+
+    scripts:
+      - name: Set up local.properties
+        script: |
+          echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
+          echo "GEMINI_API_KEY=$GEMINI_API_KEY" >> local.properties
+
+      - name: Grant execute permission for gradlew
+        script: |
+          chmod +x gradlew || true
+
+      - name: Generate Gradle Wrapper if missing
+        script: |
+          if [ ! -f "gradlew" ]; then
+            gradle wrapper --gradle-version 8.5
+            chmod +x gradlew
+          fi
+
+      - name: Build Debug APK
+        script: |
+          ./gradlew assembleDebug
+        environment:
+          GRADLE_OPTS: "-Xmx4g -Dorg.gradle.daemon=false"
+
+      - name: Build Release APK
+        script: |
+          ./gradlew assembleRelease
+        environment:
+          GRADLE_OPTS: "-Xmx4g -Dorg.gradle.daemon=false"
+
+    artifacts:
+      - app/build/outputs/apk/debug/*.apk
+      - app/build/outputs/apk/release/*.apk
+
+    publishing:
+      email:
+        recipients:
+          - rinkusharma79346@gmail.com
+        notify:
+          success: true
+          failure: true

@@ -28,7 +28,7 @@ jobs:
     - name: Create local.properties
       run: |
         echo "sdk.dir=${ANDROID_SDK_ROOT}" > local.properties
-        echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY || 'PLACEHOLDER_KEY' }}" >> local.properties
+        echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY || 'AIzaSyCIz3Z0T8LwZT5VQcDaL_dgmCKIRySL5MY' }}" >> local.properties
 
     - name: Generate Gradle Wrapper
       run: gradle wrapper --gradle-version 8.5
