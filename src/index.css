@@ -1,0 +1,50 @@
+@import "tailwindcss";
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap');
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+
+body {
+  background-color: #050508;
+  min-height: 100vh;
+  overflow-x: hidden;
+  font-family: 'Inter', -apple-system, sans-serif;
+  color: white;
+}
+
+.mesh-bg {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: -1;
+  background: radial-gradient(circle at 80% 20%, #003344 0%, transparent 40%),
+              radial-gradient(circle at 10% 80%, #001a33 0%, transparent 50%);
+}
+
+.glass {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.8);
+}
+
+.cyan-glow {
+  text-shadow: 0 0 12px rgba(0, 229, 255, 0.6);
+}
+
+.border-cyan {
+  border-color: rgba(0, 229, 255, 0.4);
+}
+
+.bg-cyan {
+  background-color: #00E5FF;
+}
+
+.text-cyan-400 {
+  color: #00E5FF;
+}
