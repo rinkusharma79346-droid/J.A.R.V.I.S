@@ -1,11 +1,12 @@
 /**
- * JARVIS MCP Relay Server v2.0 — HTTP Long-Polling
+ * JARVIS MCP Relay Server v2.1 — HTTP Long-Polling
  *
  * Bulletproof on Render free tier:
  *   - No WebSockets (avoids Render WS proxy issues)
  *   - HTTP long-polling with 25s timeout (stays within Render 30s limit)
- *   - Graceful cold-start handling
+ *   - Graceful cold-start handling with /api/warmup
  *   - In-memory state with automatic cleanup
+ *   - CORS fully open for any client
  *
  * Endpoints:
  *   POST /api/register     — Device registers itself
@@ -15,6 +16,8 @@
  *   POST /api/command      — MCP client sends command to device
  *   GET  /api/devices      — MCP client lists connected devices
  *   GET  /api/health       — Health check
+ *   GET  /api/warmup       — Force server awake (for cold-start prevention)
+ *   GET  /                 — Server info
  */
 
 const express = require('express');
@@ -38,14 +41,29 @@ const CLEANUP_INTERVAL_MS = 60000; // Clean stale data every 60s
 const DEVICE_STALE_MS = 120000;  // Device considered stale after 2min
 const RESPONSE_TTL_MS = 300000;  // Responses kept for 5min
 
+// ─── Server uptime tracking ───
+const startTime = Date.now();
+
 // ─── Health Check ───
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
-    version: '2.0.0',
+    version: '2.1.0',
+    protocol: 'HTTP Long-Polling',
     devices: devices.size,
     pendingResponses: responses.size,
     uptime: process.uptime(),
+    uptimeMs: Date.now() - startTime,
+    timestamp: Date.now()
+  });
+});
+
+// ─── Warmup endpoint (prevents Render cold start) ───
+app.get('/api/warmup', (req, res) => {
+  res.json({
+    status: 'warm',
+    uptime: process.uptime(),
+    devices: devices.size,
     timestamp: Date.now()
   });
 });
@@ -95,36 +113,51 @@ app.get('/api/poll', async (req, res) => {
 
   // Check for pending commands immediately
   if (dev.pendingCommands.length > 0) {
-    const cmd = dev.pendingCommands.shift();
-    return res.json({ commands: [cmd], serverTime: Date.now() });
+    const commands = [];
+    // Send ALL pending commands (not just one)
+    while (dev.pendingCommands.length > 0) {
+      commands.push(dev.pendingCommands.shift());
+    }
+    return res.json({ commands, serverTime: Date.now() });
   }
 
   // Long-poll: wait up to POLL_TIMEOUT_MS for a command
-  const startTime = Date.now();
+  const pollStart = Date.now();
+  let intervalId = null;
+  let timeoutId = null;
+  let responded = false;
 
-  const pollInterval = setInterval(() => {
-    // Check if device has pending commands
+  const sendResponse = (commands) => {
+    if (responded) return;
+    responded = true;
+    if (intervalId) clearInterval(intervalId);
+    if (timeoutId) clearTimeout(timeoutId);
+    res.json({ commands, serverTime: Date.now() });
+  };
+
+  // Check every 500ms for pending commands
+  intervalId = setInterval(() => {
     if (dev.pendingCommands.length > 0) {
-      clearInterval(pollInterval);
-      const cmd = dev.pendingCommands.shift();
-      if (!res.headersSent) {
-        res.json({ commands: [cmd], serverTime: Date.now() });
+      const commands = [];
+      while (dev.pendingCommands.length > 0) {
+        commands.push(dev.pendingCommands.shift());
       }
-      return;
-    }
-
-    // Check if timeout reached
-    if (Date.now() - startTime >= POLL_TIMEOUT_MS) {
-      clearInterval(pollInterval);
-      if (!res.headersSent) {
-        res.json({ commands: [], serverTime: Date.now() });
-      }
+      sendResponse(commands);
     }
   }, 500);
 
+  // Timeout after POLL_TIMEOUT_MS
+  timeoutId = setTimeout(() => {
+    sendResponse([]); // Empty response = no commands
+  }, POLL_TIMEOUT_MS);
+
   // Handle client disconnect
   req.on('close', () => {
-    clearInterval(pollInterval);
+    if (intervalId) clearInterval(intervalId);
+    if (timeoutId) clearTimeout(timeoutId);
+    if (!responded) {
+      responded = true;
+    }
   });
 });
 
@@ -236,27 +269,40 @@ app.get('/api/response/:requestId', async (req, res) => {
   }
 
   // Long-poll for response (25s max)
-  const startTime = Date.now();
-  const pollInterval = setInterval(() => {
+  const pollStart = Date.now();
+  let intervalId = null;
+  let timeoutId = null;
+  let responded = false;
+
+  const sendResponse = (data) => {
+    if (responded) return;
+    responded = true;
+    if (intervalId) clearInterval(intervalId);
+    if (timeoutId) clearTimeout(timeoutId);
+    res.json(data);
+  };
+
+  intervalId = setInterval(() => {
     const resp = responses.get(requestId);
     if (resp) {
-      clearInterval(pollInterval);
       responses.delete(requestId);
-      if (!res.headersSent) {
-        res.json(resp.response);
-      }
-      return;
+      sendResponse(resp.response);
     }
 
-    if (Date.now() - startTime >= POLL_TIMEOUT_MS) {
-      clearInterval(pollInterval);
-      if (!res.headersSent) {
-        res.json({ type: 'timeout', message: 'No response from device in time' });
-      }
+    if (Date.now() - pollStart >= POLL_TIMEOUT_MS) {
+      sendResponse({ type: 'timeout', message: 'No response from device in time' });
     }
   }, 500);
 
-  req.on('close', () => clearInterval(pollInterval));
+  timeoutId = setTimeout(() => {
+    sendResponse({ type: 'timeout', message: 'No response from device in time' });
+  }, POLL_TIMEOUT_MS);
+
+  req.on('close', () => {
+    if (intervalId) clearInterval(intervalId);
+    if (timeoutId) clearTimeout(timeoutId);
+    if (!responded) responded = true;
+  });
 });
 
 // ─── MCP Client: List Devices ───
@@ -300,11 +346,10 @@ app.get('/api/device/:deviceId/status', (req, res) => {
 setInterval(() => {
   const now = Date.now();
 
-  // Remove stale devices
+  // Mark stale devices
   for (const [id, dev] of devices) {
     if (now - dev.lastSeen > DEVICE_STALE_MS) {
       dev.connected = false;
-      // Don't remove, just mark disconnected — they may reconnect
     }
     // Clean old pending commands (> 5min)
     dev.pendingCommands = dev.pendingCommands.filter(c => now - c.timestamp < 300000);
@@ -329,7 +374,7 @@ setInterval(() => {
 app.get('/', (req, res) => {
   res.json({
     name: 'JARVIS MCP Relay Server',
-    version: '2.0.0',
+    version: '2.1.0',
     protocol: 'HTTP Long-Polling',
     endpoints: {
       'POST /api/register': 'Device registration',
@@ -340,7 +385,8 @@ app.get('/', (req, res) => {
       'GET  /api/response/:requestId': 'MCP client poll for response',
       'GET  /api/devices': 'List connected devices',
       'GET  /api/device/:deviceId/status': 'Get device status',
-      'GET  /api/health': 'Health check'
+      'GET  /api/health': 'Health check',
+      'GET  /api/warmup': 'Keep server awake / prevent cold start'
     }
   });
 });
@@ -348,7 +394,7 @@ app.get('/', (req, res) => {
 // ─── Start Server ───
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`╔══════════════════════════════════════════╗`);
-  console.log(`║   JARVIS MCP Relay Server v2.0           ║`);
+  console.log(`║   JARVIS MCP Relay Server v2.1           ║`);
   console.log(`║   HTTP Long-Polling — Bulletproof Mode   ║`);
   console.log(`║   Port: ${PORT}                            ║`);
   console.log(`╚══════════════════════════════════════════╝`);

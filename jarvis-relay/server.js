@@ -1,254 +1,349 @@
 /**
- * JARVIS WebSocket Relay Server
- * 
- * Bridges MCP server clients and JARVIS Android devices.
- * Runs on any cloud platform (Render, Railway, Fly.io) or locally.
- * 
- * Protocol:
- *   - Devices connect and identify with a deviceId
- *   - MCP clients connect and can target devices
- *   - Messages are routed by requestId for request/response
- *   - Push notifications (status updates) are forwarded to all MCP clients
- * 
- * Environment:
- *   PORT — server port (default: 8080)
- *   AUTH_TOKEN — optional token for authentication
+ * JARVIS MCP Relay Server v2.1 — HTTP Long-Polling
+ *
+ * This is the DEPLOYED version on Render.
+ * Replaces the old WebSocket-based relay with bulletproof HTTP long-polling.
+ *
+ * Bulletproof on Render free tier:
+ *   - No WebSockets (avoids Render WS proxy issues)
+ *   - HTTP long-polling with 25s timeout (stays within Render 30s limit)
+ *   - Graceful cold-start handling with /api/warmup
+ *   - In-memory state with automatic cleanup
+ *   - CORS fully open for any client
  */
 
-const { WebSocketServer } = require("ws");
-const http = require("http");
-const { v4: uuidv4 } = require("uuid");
+const express = require('express');
+const cors = require('cors');
+const crypto = require('crypto');
 
-const PORT = parseInt(process.env.PORT || "8080");
-const AUTH_TOKEN = process.env.AUTH_TOKEN || "";
+const app = express();
+const PORT = process.env.PORT || 10000;
 
-// ─── State ───
-const devices = new Map();    // deviceId → { ws, model, connected }
-const mcpClients = new Map(); // clientId → ws
-const pendingRequests = new Map(); // requestId → { from, timestamp }
+// ─── Middleware ───
+app.use(cors());
+app.use(express.json({ limit: '10mb' }));
 
-// ─── HTTP Server (for health checks on cloud platforms) ───
-const server = http.createServer((req, res) => {
-  if (req.url === "/health") {
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({
-      status: "ok",
-      devices: devices.size,
-      mcpClients: mcpClients.size,
-      pendingRequests: pendingRequests.size,
-    }));
-    return;
-  }
-  res.writeHead(404);
-  res.end("Not found");
-});
+// ─── In-Memory State ───
+const devices = new Map();
+const responses = new Map();
+const statusUpdates = new Map();
 
-// ─── WebSocket Server ───
-const wss = new WebSocketServer({ server });
+const POLL_TIMEOUT_MS = 25000;
+const CLEANUP_INTERVAL_MS = 60000;
+const DEVICE_STALE_MS = 120000;
+const RESPONSE_TTL_MS = 300000;
 
-wss.on("connection", (ws, req) => {
-  const clientIp = req.headers["x-forwarded-for"] || req.socket.remoteAddress;
-  let clientId = uuidv4();
-  let isDevice = false;
-  let deviceId = "";
+const startTime = Date.now();
 
-  console.log(`[${new Date().toISOString()}] New connection from ${clientIp} (id: ${clientId})`);
-
-  // ─── Message Handler ───
-  ws.on("message", (data) => {
-    let msg;
-    try {
-      msg = JSON.parse(data.toString());
-    } catch (e) {
-      ws.send(JSON.stringify({ type: "error", message: "Invalid JSON" }));
-      return;
-    }
-
-    // ─── Authentication ───
-    if (AUTH_TOKEN && msg.authToken !== AUTH_TOKEN) {
-      // Allow unauthenticated connections if AUTH_TOKEN is not set
-      // Otherwise, require authToken in first message
-    }
-
-    // ─── Device Registration ───
-    if (msg.type === "register_device") {
-      isDevice = true;
-      deviceId = msg.deviceId || clientId;
-      clientId = deviceId;
-
-      devices.set(deviceId, {
-        ws,
-        model: msg.model || "Unknown",
-        androidVersion: msg.androidVersion || "",
-        connected: true,
-        connectedAt: new Date().toISOString(),
-      });
-
-      console.log(`[${new Date().toISOString()}] Device registered: ${deviceId} (${msg.model || "Unknown"})`);
-
-      // Notify all MCP clients
-      broadcastToMcpClients({
-        type: "device_connected",
-        deviceId,
-        model: msg.model || "Unknown",
-      });
-
-      ws.send(JSON.stringify({ type: "register_ack", deviceId }));
-      return;
-    }
-
-    // ─── MCP Client Registration ───
-    if (msg.type === "register_mcp") {
-      isDevice = false;
-      mcpClients.set(clientId, ws);
-
-      console.log(`[${new Date().toISOString()}] MCP client registered: ${clientId}`);
-
-      ws.send(JSON.stringify({
-        type: "register_ack",
-        clientId,
-        devices: getDeviceList(),
-      }));
-      return;
-    }
-
-    // ─── Commands from MCP client → forward to device ───
-    if (!isDevice && msg.type && msg.requestId) {
-      const targetDeviceId = msg.deviceId || getFirstDeviceId();
-
-      if (!targetDeviceId) {
-        ws.send(JSON.stringify({
-          type: "error",
-          requestId: msg.requestId,
-          message: "No devices connected to relay",
-        }));
-        return;
-      }
-
-      const device = devices.get(targetDeviceId);
-      if (!device || !device.ws || device.ws.readyState !== 1) {
-        ws.send(JSON.stringify({
-          type: "error",
-          requestId: msg.requestId,
-          message: `Device ${targetDeviceId} is not connected`,
-        }));
-        return;
-      }
-
-      // Store pending request for routing response back
-      pendingRequests.set(msg.requestId, {
-        from: clientId,
-        timestamp: Date.now(),
-        deviceId: targetDeviceId,
-      });
-
-      // Forward to device
-      const forwardMsg = { ...msg };
-      delete forwardMsg.deviceId; // Don't send deviceId to the device
-      device.ws.send(JSON.stringify(forwardMsg));
-
-      console.log(`[${new Date().toISOString()}] MCP → Device ${targetDeviceId}: ${msg.type} (${msg.requestId})`);
-      return;
-    }
-
-    // ─── Responses from device → forward back to MCP client ───
-    if (isDevice && msg.requestId && pendingRequests.has(msg.requestId)) {
-      const pending = pendingRequests.get(msg.requestId);
-      const mcpWs = mcpClients.get(pending.from);
-
-      if (mcpWs && mcpWs.readyState === 1) {
-        mcpWs.send(JSON.stringify(msg));
-        console.log(`[${new Date().toISOString()}] Device ${deviceId} → MCP: ${msg.type} (${msg.requestId})`);
-      }
-
-      pendingRequests.delete(msg.requestId);
-      return;
-    }
-
-    // ─── Push notifications from device (no requestId) → broadcast to MCP clients ───
-    if (isDevice && msg.type === "status_update") {
-      broadcastToMcpClients({ ...msg, deviceId });
-      return;
-    }
-
-    // ─── List devices request ───
-    if (!isDevice && msg.type === "list_devices") {
-      ws.send(JSON.stringify({
-        type: "device_list",
-        requestId: msg.requestId,
-        devices: getDeviceList(),
-      }));
-      return;
-    }
-  });
-
-  // ─── Disconnect Handler ───
-  ws.on("close", () => {
-    if (isDevice && deviceId) {
-      devices.delete(deviceId);
-      console.log(`[${new Date().toISOString()}] Device disconnected: ${deviceId}`);
-      broadcastToMcpClients({ type: "device_disconnected", deviceId });
-    } else {
-      mcpClients.delete(clientId);
-      console.log(`[${new Date().toISOString()}] MCP client disconnected: ${clientId}`);
-    }
-
-    // Clean up pending requests from this client
-    for (const [reqId, pending] of pendingRequests.entries()) {
-      if (pending.from === clientId) {
-        pendingRequests.delete(reqId);
-      }
-    }
-  });
-
-  ws.on("error", (err) => {
-    console.error(`[${new Date().toISOString()}] WebSocket error:`, err.message);
+// ─── Health Check ───
+app.get('/api/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    version: '2.1.0',
+    protocol: 'HTTP Long-Polling',
+    devices: devices.size,
+    pendingResponses: responses.size,
+    uptime: process.uptime(),
+    uptimeMs: Date.now() - startTime,
+    timestamp: Date.now()
   });
 });
 
-// ─── Helpers ───
-function getDeviceList() {
-  return Array.from(devices.entries()).map(([id, d]) => ({
-    deviceId: id,
-    model: d.model,
-    androidVersion: d.androidVersion,
-    connected: d.connected,
-    connectedAt: d.connectedAt,
-  }));
-}
+// ─── Warmup endpoint (prevents Render cold start) ───
+app.get('/api/warmup', (req, res) => {
+  res.json({
+    status: 'warm',
+    uptime: process.uptime(),
+    devices: devices.size,
+    timestamp: Date.now()
+  });
+});
 
-function getFirstDeviceId() {
-  for (const [id, d] of devices.entries()) {
-    if (d.connected) return id;
+// ─── Device Registration ───
+app.post('/api/register', (req, res) => {
+  const { deviceId, model, androidVersion, sdkVersion } = req.body;
+  if (!deviceId) {
+    return res.status(400).json({ error: 'deviceId required' });
   }
-  return null;
-}
 
-function broadcastToMcpClients(msg) {
-  const data = JSON.stringify(msg);
-  for (const [id, ws] of mcpClients.entries()) {
-    if (ws.readyState === 1) {
-      ws.send(data);
+  const existing = devices.get(deviceId);
+  devices.set(deviceId, {
+    info: { model: model || 'Unknown', androidVersion: androidVersion || '?', sdkVersion: sdkVersion || '?' },
+    lastSeen: Date.now(),
+    pendingCommands: existing?.pendingCommands || [],
+    connected: true
+  });
+
+  console.log(`[REGISTER] ${deviceId} — ${model} (Android ${androidVersion})`);
+  res.json({ ok: true, message: 'Registered', deviceId });
+});
+
+// ─── Device Long-Poll for Commands ───
+app.get('/api/poll', async (req, res) => {
+  const { deviceId } = req.query;
+  if (!deviceId) {
+    return res.status(400).json({ error: 'deviceId required' });
+  }
+
+  const device = devices.get(deviceId);
+  if (device) {
+    device.lastSeen = Date.now();
+    device.connected = true;
+  } else {
+    devices.set(deviceId, {
+      info: { model: 'Unknown', androidVersion: '?', sdkVersion: '?' },
+      lastSeen: Date.now(),
+      pendingCommands: [],
+      connected: true
+    });
+  }
+
+  const dev = devices.get(deviceId);
+
+  if (dev.pendingCommands.length > 0) {
+    const commands = [];
+    while (dev.pendingCommands.length > 0) {
+      commands.push(dev.pendingCommands.shift());
+    }
+    return res.json({ commands, serverTime: Date.now() });
+  }
+
+  const pollStart = Date.now();
+  let intervalId = null;
+  let timeoutId = null;
+  let responded = false;
+
+  const sendResponse = (commands) => {
+    if (responded) return;
+    responded = true;
+    if (intervalId) clearInterval(intervalId);
+    if (timeoutId) clearTimeout(timeoutId);
+    res.json({ commands, serverTime: Date.now() });
+  };
+
+  intervalId = setInterval(() => {
+    if (dev.pendingCommands.length > 0) {
+      const commands = [];
+      while (dev.pendingCommands.length > 0) {
+        commands.push(dev.pendingCommands.shift());
+      }
+      sendResponse(commands);
+    }
+  }, 500);
+
+  timeoutId = setTimeout(() => {
+    sendResponse([]);
+  }, POLL_TIMEOUT_MS);
+
+  req.on('close', () => {
+    if (intervalId) clearInterval(intervalId);
+    if (timeoutId) clearTimeout(timeoutId);
+    if (!responded) responded = true;
+  });
+});
+
+// ─── Device Push Status ───
+app.post('/api/status', (req, res) => {
+  const { deviceId, status, step, action, isRunning } = req.body;
+  if (!deviceId) {
+    return res.status(400).json({ error: 'deviceId required' });
+  }
+
+  const device = devices.get(deviceId);
+  if (device) {
+    device.lastSeen = Date.now();
+    device.connected = true;
+  }
+
+  statusUpdates.set(deviceId, {
+    status: status || '',
+    step: step || 0,
+    action: action || '',
+    isRunning: isRunning || false,
+    timestamp: Date.now()
+  });
+
+  res.json({ ok: true });
+});
+
+// ─── Device Push Command Response ───
+app.post('/api/response', (req, res) => {
+  const { requestId, type, deviceId, ...rest } = req.body;
+  if (!requestId) {
+    return res.status(400).json({ error: 'requestId required' });
+  }
+
+  const device = devices.get(deviceId);
+  if (device) {
+    device.lastSeen = Date.now();
+  }
+
+  responses.set(requestId, {
+    response: { type, deviceId, ...rest },
+    timestamp: Date.now()
+  });
+
+  console.log(`[RESPONSE] ${type} from ${deviceId} (requestId: ${requestId})`);
+  res.json({ ok: true });
+});
+
+// ─── MCP Client: Send Command to Device ───
+app.post('/api/command', (req, res) => {
+  const { deviceId, type, task, ...rest } = req.body;
+  if (!type) {
+    return res.status(400).json({ error: 'type required' });
+  }
+
+  const requestId = rest.requestId || crypto.randomUUID();
+
+  if (deviceId) {
+    const device = devices.get(deviceId);
+    if (!device) {
+      return res.status(404).json({ error: 'Device not found', deviceId });
+    }
+
+    device.pendingCommands.push({
+      requestId, type, task, ...rest, timestamp: Date.now()
+    });
+
+    console.log(`[COMMAND] ${type} → ${deviceId} (requestId: ${requestId})`);
+    return res.json({ ok: true, requestId, deviceId });
+  }
+
+  for (const [id, dev] of devices) {
+    if (dev.connected && Date.now() - dev.lastSeen < DEVICE_STALE_MS) {
+      dev.pendingCommands.push({
+        requestId, type, task, ...rest, timestamp: Date.now()
+      });
+      console.log(`[COMMAND] ${type} → ${id} (requestId: ${requestId})`);
+      return res.json({ ok: true, requestId, deviceId: id });
     }
   }
-}
 
-// ─── Clean up stale pending requests every 60s ───
+  return res.status(404).json({ error: 'No connected devices available' });
+});
+
+// ─── MCP Client: Poll for Response ───
+app.get('/api/response/:requestId', async (req, res) => {
+  const { requestId } = req.params;
+
+  const existing = responses.get(requestId);
+  if (existing) {
+    responses.delete(requestId);
+    return res.json(existing.response);
+  }
+
+  const pollStart = Date.now();
+  let intervalId = null;
+  let timeoutId = null;
+  let responded = false;
+
+  const sendResponse = (data) => {
+    if (responded) return;
+    responded = true;
+    if (intervalId) clearInterval(intervalId);
+    if (timeoutId) clearTimeout(timeoutId);
+    res.json(data);
+  };
+
+  intervalId = setInterval(() => {
+    const resp = responses.get(requestId);
+    if (resp) {
+      responses.delete(requestId);
+      sendResponse(resp.response);
+    }
+    if (Date.now() - pollStart >= POLL_TIMEOUT_MS) {
+      sendResponse({ type: 'timeout', message: 'No response from device in time' });
+    }
+  }, 500);
+
+  timeoutId = setTimeout(() => {
+    sendResponse({ type: 'timeout', message: 'No response from device in time' });
+  }, POLL_TIMEOUT_MS);
+
+  req.on('close', () => {
+    if (intervalId) clearInterval(intervalId);
+    if (timeoutId) clearTimeout(timeoutId);
+    if (!responded) responded = true;
+  });
+});
+
+// ─── MCP Client: List Devices ───
+app.get('/api/devices', (req, res) => {
+  const deviceList = [];
+  for (const [id, dev] of devices) {
+    const isStale = Date.now() - dev.lastSeen > DEVICE_STALE_MS;
+    const status = statusUpdates.get(id);
+    deviceList.push({
+      deviceId: id,
+      model: dev.info.model,
+      androidVersion: dev.info.androidVersion,
+      connected: !isStale,
+      lastSeen: dev.lastSeen,
+      pendingCommands: dev.pendingCommands.length,
+      status: status || null
+    });
+  }
+  res.json({ devices: deviceList, count: deviceList.length });
+});
+
+// ─── MCP Client: Get Device Status ───
+app.get('/api/device/:deviceId/status', (req, res) => {
+  const { deviceId } = req.params;
+  const device = devices.get(deviceId);
+  if (!device) {
+    return res.status(404).json({ error: 'Device not found' });
+  }
+  const status = statusUpdates.get(deviceId);
+  res.json({
+    deviceId,
+    connected: Date.now() - device.lastSeen < DEVICE_STALE_MS,
+    lastSeen: device.lastSeen,
+    model: device.info.model,
+    status: status || null
+  });
+});
+
+// ─── Periodic Cleanup ───
 setInterval(() => {
   const now = Date.now();
-  for (const [reqId, pending] of pendingRequests.entries()) {
-    if (now - pending.timestamp > 60000) {
-      pendingRequests.delete(reqId);
-    }
+  for (const [id, dev] of devices) {
+    if (now - dev.lastSeen > DEVICE_STALE_MS) dev.connected = false;
+    dev.pendingCommands = dev.pendingCommands.filter(c => now - c.timestamp < 300000);
   }
-}, 60000);
+  for (const [id, resp] of responses) {
+    if (now - resp.timestamp > RESPONSE_TTL_MS) responses.delete(id);
+  }
+  for (const [id, stat] of statusUpdates) {
+    if (now - stat.timestamp > DEVICE_STALE_MS) statusUpdates.delete(id);
+  }
+}, CLEANUP_INTERVAL_MS);
 
-// ─── Start ───
-server.listen(PORT, () => {
-  console.log(`╔══════════════════════════════════════╗`);
-  console.log(`║   JARVIS Relay Server                ║`);
-  console.log(`║   Port: ${PORT.toString().padEnd(27)}║`);
-  console.log(`║   Auth: ${(AUTH_TOKEN ? "Enabled" : "Disabled").padEnd(27)}║`);
-  console.log(`╚══════════════════════════════════════╝`);
-  console.log(`Ready for connections...`);
+// ─── Root ───
+app.get('/', (req, res) => {
+  res.json({
+    name: 'JARVIS MCP Relay Server',
+    version: '2.1.0',
+    protocol: 'HTTP Long-Polling',
+    endpoints: {
+      'POST /api/register': 'Device registration',
+      'GET  /api/poll': 'Device long-poll for commands',
+      'POST /api/status': 'Device push status',
+      'POST /api/response': 'Device push command response',
+      'POST /api/command': 'MCP client send command',
+      'GET  /api/response/:requestId': 'MCP client poll for response',
+      'GET  /api/devices': 'List connected devices',
+      'GET  /api/device/:deviceId/status': 'Get device status',
+      'GET  /api/health': 'Health check',
+      'GET  /api/warmup': 'Keep server awake'
+    }
+  });
+});
+
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`╔══════════════════════════════════════════╗`);
+  console.log(`║   JARVIS MCP Relay Server v2.1           ║`);
+  console.log(`║   HTTP Long-Polling — Bulletproof Mode   ║`);
+  console.log(`║   Port: ${PORT}                            ║`);
+  console.log(`╚══════════════════════════════════════════╝`);
 });

@@ -23,13 +23,20 @@ import java.util.concurrent.TimeUnit
  *   - GET  /api/poll       → long-poll for commands (25s timeout)
  *   - POST /api/status     → push status updates
  *   - POST /api/response   → push command responses
+ *   - GET  /api/warmup     → keep server alive (prevent cold starts)
  *
  * The poll loop runs continuously:
  *   1. GET /api/poll?deviceId=xxx (blocks up to 25s waiting for commands)
  *   2. If commands arrive, handle them
  *   3. Immediately poll again
  *   4. If poll times out (empty), immediately poll again
- *   5. If poll fails, wait 3s then retry (exponential backoff up to 60s)
+ *   5. If poll fails, wait with exponential backoff then retry
+ *
+ * Cold-start handling:
+ *   - Render free tier spins down after 15min of inactivity
+ *   - First request after spin-down takes 30-60s to respond
+ *   - We use longer connect timeouts (60s) and retry on failures
+ *   - A periodic warmup ping keeps the server alive
  */
 object RelayClient {
 
@@ -40,14 +47,16 @@ object RelayClient {
     private const val RECONNECT_BASE_MS = 3000L
     private const val RECONNECT_MAX_MS = 60000L
     private const val STATUS_PUSH_INTERVAL_MS = 3000L
+    private const val WARMUP_INTERVAL_MS = 12 * 60 * 1000L // 12 min (Render sleeps after 15min)
 
     val isConnected = MutableStateFlow(false)
     val relayStatus = MutableStateFlow("Disconnected")
 
+    // Longer timeouts for Render cold starts
     private val client = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)   // Must be > server's 25s poll timeout
-        .writeTimeout(15, TimeUnit.SECONDS)
+        .connectTimeout(60, TimeUnit.SECONDS)  // 60s for cold starts
+        .readTimeout(35, TimeUnit.SECONDS)      // Must be > server's 25s poll timeout
+        .writeTimeout(30, TimeUnit.SECONDS)     // Generous for cold starts
         .build()
     private val gson = Gson()
     private var prefs: SharedPreferences? = null
@@ -56,6 +65,7 @@ object RelayClient {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var pollJob: Job? = null
     private var statusPushJob: Job? = null
+    private var warmupJob: Job? = null
     private var consecutiveErrors = 0
     private var registered = false
 
@@ -94,8 +104,8 @@ object RelayClient {
 
         // Start the poll loop
         pollJob = scope.launch {
-            // Register first
-            if (!registerDevice()) {
+            // Register first (with cold-start retry)
+            if (!registerDeviceWithRetry()) {
                 isConnected.value = false
                 relayStatus.value = "Registration failed — retrying..."
                 scheduleReconnect()
@@ -109,6 +119,9 @@ object RelayClient {
             // Start status push loop
             startStatusPush()
 
+            // Start warmup pings (prevent Render from sleeping)
+            startWarmupPings()
+
             // Start poll loop
             pollLoop()
         }
@@ -119,13 +132,29 @@ object RelayClient {
         pollJob = null
         statusPushJob?.cancel()
         statusPushJob = null
+        warmupJob?.cancel()
+        warmupJob = null
         isConnected.value = false
         relayStatus.value = "Disconnected"
         registered = false
         consecutiveErrors = 0
     }
 
-    // ─── Registration ───
+    // ─── Registration (with cold-start retry) ───
+    private suspend fun registerDeviceWithRetry(): Boolean {
+        val maxRetries = 3
+        for (attempt in 1..maxRetries) {
+            if (registerDevice()) return true
+
+            if (attempt < maxRetries) {
+                Log.w(TAG, "Registration attempt $attempt/$maxRetries failed, retrying in ${attempt * 5}s...")
+                relayStatus.value = "Waking up server (attempt $attempt/$maxRetries)..."
+                delay(attempt * 5000L)
+            }
+        }
+        return false
+    }
+
     private suspend fun registerDevice(): Boolean = withContext(Dispatchers.IO) {
         try {
             val payload = mapOf(
@@ -156,6 +185,26 @@ object RelayClient {
         }
     }
 
+    // ─── Warmup Pings (prevent Render cold starts) ───
+    private fun startWarmupPings() {
+        warmupJob?.cancel()
+        warmupJob = scope.launch {
+            while (currentCoroutineContext().isActive && isEnabled()) {
+                delay(WARMUP_INTERVAL_MS)
+                try {
+                    val request = Request.Builder()
+                        .url("${getRelayUrl()}/api/warmup")
+                        .get()
+                        .build()
+                    client.newCall(request).execute().close()
+                    Log.d(TAG, "Warmup ping sent")
+                } catch (e: Exception) {
+                    Log.w(TAG, "Warmup ping failed: ${e.message}")
+                }
+            }
+        }
+    }
+
     // ─── Poll Loop ───
     private suspend fun pollLoop() {
         while (currentCoroutineContext().isActive && isEnabled()) {
@@ -183,7 +232,7 @@ object RelayClient {
                 if (consecutiveErrors >= 10) {
                     // Try re-registering
                     Log.w(TAG, "Too many errors, re-registering...")
-                    registered = registerDevice()
+                    registered = registerDeviceWithRetry()
                     if (registered) {
                         relayStatus.value = "Connected (HTTP polling)"
                     }
@@ -400,7 +449,7 @@ object RelayClient {
         }
     }
 
-    // ─── Push Status Update ───
+    // ─── Push Status Update (public, called from JarvisService) ───
     fun pushStatusUpdate(status: String, step: Int, action: String) {
         if (!isConnected.value) return
         scope.launch {
@@ -426,6 +475,7 @@ object RelayClient {
         }
     }
 
+    // ─── Push Status Update (internal, with isRunning param) ───
     private suspend fun pushStatusUpdate(status: String, step: Int, action: String, isRunning: Boolean) {
         try {
             val payload = mapOf(
@@ -470,7 +520,8 @@ object RelayClient {
                     val json = gson.fromJson(body, JsonObject::class.java)
                     val version = json.get("version")?.asString ?: "?"
                     val devCount = json.get("devices")?.asInt ?: 0
-                    Pair(true, "Relay v$version online ($devCount devices)")
+                    val protocol = json.get("protocol")?.asString ?: "unknown"
+                    Pair(true, "Relay v$version ($protocol, $devCount devices)")
                 } else {
                     Pair(false, "HTTP ${response.code}")
                 }

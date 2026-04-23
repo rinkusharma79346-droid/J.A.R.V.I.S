@@ -1,12 +1,12 @@
 services:
   - type: web
-    name: jarvis-relay
+    name: J-A-R-V-I-S
     runtime: node
     plan: free
     buildCommand: npm install
     startCommand: node server.js
     envVars:
+      - key: NODE_ENV
+        value: production
       - key: PORT
-        value: 8080
-      - key: AUTH_TOKEN
-        sync: false
+        value: 10000

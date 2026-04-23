@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * JARVIS MCP Server v2.0 — HTTP Long-Polling
+ * JARVIS MCP Server v2.1 — HTTP Long-Polling
  *
  * MCP tools exposed:
  *   jarvis_execute    — Send a task to JARVIS agent
@@ -9,6 +9,7 @@
  *   jarvis_kill       — Kill running task
  *   jarvis_screenshot — Capture current screen
  *   jarvis_list_apps  — List installed apps on device
+ *   jarvis_devices    — List connected devices
  *
  * Usage in Claude Desktop / Cursor:
  *   {
@@ -24,6 +25,7 @@
  *   }
  */
 
+const crypto = require('crypto');
 const { Server } = require('@modelcontextprotocol/sdk/server/index.js');
 const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');
 const {
@@ -32,42 +34,75 @@ const {
 } = require('@modelcontextprotocol/sdk/types.js');
 
 const RELAY_URL = process.env.RELAY_URL || 'https://j-a-r-v-i-s-ktlh.onrender.com';
-const POLL_TIMEOUT_MS = 25000;
+const POLL_TIMEOUT_MS = 30000;
+const COLD_START_RETRIES = 3;
+const COLD_START_DELAY_MS = 5000;
 
-// ─── Helper: HTTP request ───
-async function httpRequest(method, path, body = null) {
+// ─── Helper: HTTP request with timeout and retry ───
+async function httpRequest(method, path, body = null, retries = COLD_START_RETRIES) {
   const url = `${RELAY_URL}${path}`;
   const options = {
     method,
     headers: { 'Content-Type': 'application/json' },
+    signal: AbortSignal.timeout(POLL_TIMEOUT_MS + 5000), // 35s total timeout
   };
 
   if (body) {
     options.body = JSON.stringify(body);
   }
 
-  const response = await fetch(url, options);
+  let lastError = null;
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const response = await fetch(url, options);
 
-  if (!response.ok) {
-    const text = await response.text().catch(() => '');
-    throw new Error(`HTTP ${response.status}: ${text.slice(0, 200)}`);
+      if (!response.ok) {
+        const text = await response.text().catch(() => '');
+        throw new Error(`HTTP ${response.status}: ${text.slice(0, 200)}`);
+      }
+
+      return await response.json();
+    } catch (err) {
+      lastError = err;
+      // If it's a timeout or network error, retry (likely Render cold start)
+      const isRetryable = err.name === 'AbortError' ||
+                          err.name === 'TypeError' ||
+                          err.message.includes('fetch failed') ||
+                          err.message.includes('ECONNREFUSED') ||
+                          err.message.includes('timeout') ||
+                          err.message.includes('socket hang up');
+
+      if (isRetryable && attempt < retries) {
+        console.error(`[RETRY] Attempt ${attempt}/${retries} failed for ${method} ${path}: ${err.message}`);
+        await new Promise(r => setTimeout(r, COLD_START_DELAY_MS * attempt));
+        continue;
+      }
+
+      if (!isRetryable) {
+        throw err; // Don't retry non-network errors
+      }
+    }
   }
+  throw lastError;
+}
 
-  return response.json();
+// ─── Helper: Find active device ───
+async function findActiveDevice() {
+  const devicesData = await httpRequest('GET', '/api/devices');
+  const devices = devicesData.devices || [];
+  const activeDevice = devices.find(d => d.connected);
+  return activeDevice || null;
 }
 
 // ─── Helper: Send command and wait for response ───
 async function sendCommand(type, params = {}) {
   const requestId = crypto.randomUUID();
 
-  // Find available device first
-  const devicesData = await httpRequest('GET', '/api/devices');
-  const devices = devicesData.devices || [];
-
-  const activeDevice = devices.find(d => d.connected);
+  // Find available device
+  const activeDevice = await findActiveDevice();
   if (!activeDevice) {
     return {
-      content: [{ type: 'text', text: '❌ No JARVIS device connected. Open the JARVIS app and enable MCP Relay in Settings.' }],
+      content: [{ type: 'text', text: 'No JARVIS device connected. Open the JARVIS app and enable MCP Relay in Settings.' }],
       isError: true,
     };
   }
@@ -80,7 +115,7 @@ async function sendCommand(type, params = {}) {
     ...params,
   });
 
-  // Poll for response (long-poll)
+  // Poll for response (long-poll, up to 25s from server + retry)
   try {
     const result = await httpRequest('GET', `/api/response/${requestId}`);
     return {
@@ -88,24 +123,21 @@ async function sendCommand(type, params = {}) {
     };
   } catch (err) {
     return {
-      content: [{ type: 'text', text: `⏱ Timeout waiting for device response: ${err.message}` }],
+      content: [{ type: 'text', text: `Timeout waiting for device response: ${err.message}` }],
       isError: true,
     };
   }
 }
 
-// ─── Helper: Send command and stream updates ───
+// ─── Helper: Send execute command and monitor progress ───
 async function sendExecuteCommand(task) {
   const requestId = crypto.randomUUID();
 
   // Find available device
-  const devicesData = await httpRequest('GET', '/api/devices');
-  const devices = devicesData.devices || [];
-
-  const activeDevice = devices.find(d => d.connected);
+  const activeDevice = await findActiveDevice();
   if (!activeDevice) {
     return {
-      content: [{ type: 'text', text: '❌ No JARVIS device connected. Open the JARVIS app and enable MCP Relay in Settings.' }],
+      content: [{ type: 'text', text: 'No JARVIS device connected. Open the JARVIS app and enable MCP Relay in Settings.' }],
       isError: true,
     };
   }
@@ -118,10 +150,17 @@ async function sendExecuteCommand(task) {
     task,
   });
 
-  // Wait for ack
-  const ack = await httpRequest('GET', `/api/response/${requestId}`);
+  // Wait for ack (long-poll)
+  let ack;
+  try {
+    ack = await httpRequest('GET', `/api/response/${requestId}`);
+  } catch (err) {
+    return {
+      content: [{ type: 'text', text: `Task sent but no ack received: ${err.message}` }],
+    };
+  }
 
-  // Now poll for status updates and completion
+  // Poll for status updates and completion
   let finalResult = null;
   const maxWait = 120000; // 2 minutes max
   const startTime = Date.now();
@@ -129,13 +168,16 @@ async function sendExecuteCommand(task) {
   while (Date.now() - startTime < maxWait) {
     await new Promise(r => setTimeout(r, 3000));
 
-    // Get device status
-    const statusData = await httpRequest('GET', `/api/device/${activeDevice.deviceId}/status`);
-    const status = statusData.status;
+    try {
+      const statusData = await httpRequest('GET', `/api/device/${activeDevice.deviceId}/status`, null, 1);
+      const status = statusData.status;
 
-    if (status && !status.isRunning) {
-      finalResult = status;
-      break;
+      if (status && !status.isRunning) {
+        finalResult = status;
+        break;
+      }
+    } catch (err) {
+      // Non-fatal — device status poll failed, keep trying
     }
   }
 
@@ -143,14 +185,14 @@ async function sendExecuteCommand(task) {
     return {
       content: [{
         type: 'text',
-        text: `✅ Task Complete!\nStatus: ${finalResult.status}\nSteps: ${finalResult.step}\nLast Action: ${finalResult.action}\nDevice: ${activeDevice.deviceId}`
+        text: `Task Complete!\nStatus: ${finalResult.status}\nSteps: ${finalResult.step}\nLast Action: ${finalResult.action}\nDevice: ${activeDevice.deviceId}`
       }],
     };
   } else {
     return {
       content: [{
         type: 'text',
-        text: `⏱ Task is still running on device. Status: ${ack.type || 'started'}\nDevice: ${activeDevice.deviceId}\nTask: ${task}`
+        text: `Task is still running on device. Ack: ${ack.type || 'started'}\nDevice: ${activeDevice.deviceId}\nTask: ${task}`
       }],
     };
   }
@@ -160,7 +202,7 @@ async function sendExecuteCommand(task) {
 const server = new Server(
   {
     name: 'jarvis-mcp-server',
-    version: '2.0.0',
+    version: '2.1.0',
   },
   {
     capabilities: {
@@ -241,7 +283,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const task = args?.task;
         if (!task) {
           return {
-            content: [{ type: 'text', text: '❌ Missing required parameter: task' }],
+            content: [{ type: 'text', text: 'Missing required parameter: task' }],
             isError: true,
           };
         }
@@ -291,14 +333,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const devices = data.devices || [];
         if (devices.length === 0) {
           return {
-            content: [{ type: 'text', text: '❌ No JARVIS devices connected. Open the JARVIS app and enable MCP Relay in Settings.' }],
+            content: [{ type: 'text', text: 'No JARVIS devices connected. Open the JARVIS app and enable MCP Relay in Settings.' }],
           };
         }
         return {
           content: [{
             type: 'text',
             text: devices.map(d =>
-              `${d.connected ? '🟢' : '🔴'} ${d.deviceId}\n   Model: ${d.model}\n   Android: ${d.androidVersion}\n   Last Seen: ${new Date(d.lastSeen).toLocaleTimeString()}\n   Status: ${d.status ? d.status.status : 'Idle'}`
+              `${d.connected ? '[ONLINE]' : '[OFFLINE]'} ${d.deviceId}\n   Model: ${d.model}\n   Android: ${d.androidVersion}\n   Last Seen: ${new Date(d.lastSeen).toLocaleTimeString()}\n   Status: ${d.status ? d.status.status : 'Idle'}`
             ).join('\n\n'),
           }],
         };
@@ -306,13 +348,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       default:
         return {
-          content: [{ type: 'text', text: `❌ Unknown tool: ${name}` }],
+          content: [{ type: 'text', text: `Unknown tool: ${name}` }],
           isError: true,
         };
     }
   } catch (error) {
     return {
-      content: [{ type: 'text', text: `❌ Error: ${error.message}` }],
+      content: [{ type: 'text', text: `Error: ${error.message}` }],
       isError: true,
     };
   }
@@ -322,7 +364,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error('JARVIS MCP Server v2.0 running (HTTP Long-Polling)');
+  console.error('JARVIS MCP Server v2.1 running (HTTP Long-Polling)');
   console.error(`Relay: ${RELAY_URL}`);
 }
 
