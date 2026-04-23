@@ -27,6 +27,10 @@ class JarvisService : AccessibilityService() {
         val status = MutableStateFlow("Idle")
         val currentStep = MutableStateFlow(0)
         val currentAction = MutableStateFlow("—")
+
+        // MCP command state for PiP overlay
+        val mcpState = MutableStateFlow(McpCommandState())
+
         private var taskJob: Job? = null
 
         fun startTask(task: String) {
@@ -46,6 +50,14 @@ class JarvisService : AccessibilityService() {
     private var consecutiveFailures = 0
     private var consecutiveScreenshotFailures = 0
 
+    // Chrome package names to try
+    private val CHROME_PACKAGES = listOf(
+        "com.android.chrome",
+        "com.chrome.beta",
+        "com.chrome.dev",
+        "com.google.android.apps.chrome"
+    )
+
     override fun onServiceConnected() {
         instance = this
         memory = AgentMemory(getSharedPreferences("jarvis_settings", MODE_PRIVATE))
@@ -59,7 +71,6 @@ class JarvisService : AccessibilityService() {
             RelayClient.connect()
             Log.i(TAG, "MCP Relay auto-connecting...")
         } else {
-            // Auto-enable relay with default URL if not configured yet
             val prefs = getSharedPreferences("jarvis_settings", MODE_PRIVATE)
             val hasUrl = prefs.getString("relay_url", "")?.isNotBlank() == true
             if (hasUrl) {
@@ -86,7 +97,7 @@ class JarvisService : AccessibilityService() {
     }
 
     // ════════════════════════════════════════════════
-    //  MAIN REACT LOOP — THE BRAIN
+    //  MAIN REACT LOOP — THE BRAIN (legacy, for local AI)
     // ════════════════════════════════════════════════
 
     private fun executeReActLoop(task: String) {
@@ -96,10 +107,9 @@ class JarvisService : AccessibilityService() {
             return
         }
 
-        // Check if API key is configured
         val config = SettingsManager.getConfig(this)
         val hasKey = config.apiKey.isNotBlank() ||
-                (config.provider == "gemini") // Gemini has fallback key
+                (config.provider == "gemini")
         if (!hasKey) {
             status.value = "Error: No API key configured. Go to Settings."
             Toast.makeText(this, "No API key! Open app Settings.", Toast.LENGTH_LONG).show()
@@ -120,12 +130,10 @@ class JarvisService : AccessibilityService() {
         taskJob = serviceScope.launch {
             try {
                 Log.i(TAG, "═══ STARTING TASK: $task ═══")
-                Log.i(TAG, "Provider: ${provider.name} | Model: ${config.model} | MaxSteps: $maxSteps")
                 status.value = "Starting: $task"
                 currentAction.value = "Initializing..."
                 RelayClient.pushStatusUpdate(status.value, 0, currentAction.value)
 
-                // Give the system a moment to settle
                 delay(1500L)
 
                 for (step in 1..maxSteps) {
@@ -134,7 +142,6 @@ class JarvisService : AccessibilityService() {
                     status.value = "Step $step: Capturing screen..."
                     delay(400)
 
-                    // ─── CAPTURE SCREENSHOT (suspend function handles threading) ───
                     val b64 = captureScreen()
                     if (b64 == null) {
                         consecutiveScreenshotFailures++
@@ -149,7 +156,6 @@ class JarvisService : AccessibilityService() {
                     }
                     consecutiveScreenshotFailures = 0
 
-                    // ─── READ UI TREE (Main thread) ───
                     val rootNode = withContext(Dispatchers.Main) { rootInActiveWindow }
                     val uiTree = withContext(Dispatchers.Main) { parseUITree(rootNode) }
 
@@ -159,7 +165,6 @@ class JarvisService : AccessibilityService() {
                         continue
                     }
 
-                    // ─── STUCK DETECTION ───
                     history.add(uiTree.take(500))
                     if (history.size > 3) history.removeFirst()
                     if (history.size == 3 && history.distinct().size == 1) {
@@ -172,7 +177,6 @@ class JarvisService : AccessibilityService() {
                         continue
                     }
 
-                    // ─── ASK AI FOR NEXT ACTION ───
                     status.value = "Step $step: Thinking..."
                     RelayClient.pushStatusUpdate(status.value, step, "Thinking...")
 
@@ -194,7 +198,6 @@ class JarvisService : AccessibilityService() {
 
                     Log.i(TAG, "Step $step: ${action.action} — ${action.reason}")
 
-                    // ─── HANDLE FAILURES ───
                     if (action.action == "FAIL") {
                         consecutiveFailures++
                         val errorDetail = action.reason.ifBlank { "Unknown error" }
@@ -212,24 +215,20 @@ class JarvisService : AccessibilityService() {
                     }
                     consecutiveFailures = 0
 
-                    // ─── RECORD IN MEMORY ───
                     memory.record(step, action)
 
                     currentAction.value = "${action.action}: ${action.reason}"
                     status.value = "Step $step: ${action.action} (${action.reason})"
                     RelayClient.pushStatusUpdate(status.value, step, currentAction.value)
 
-                    // ─── EXECUTE ACTION (Main thread) ───
                     withContext(Dispatchers.Main) { executeAction(action) }
 
-                    // ─── CHECK IF DONE ───
                     if (action.action == "DONE") {
                         status.value = "Task Complete: ${action.reason}"
                         currentAction.value = "DONE: ${action.reason}"
                         break
                     }
 
-                    // ─── ACTION-SPECIFIC DELAY ───
                     val delayMs = when (action.action) {
                         "TAP" -> actionDelay
                         "LONG_PRESS" -> actionDelay + 400L
@@ -259,10 +258,6 @@ class JarvisService : AccessibilityService() {
     //  SCREENSHOT CAPTURE
     // ════════════════════════════════════════════════
 
-    /**
-     * Suspend-friendly screenshot capture.
-     * Uses suspendCancellableCoroutine to avoid blocking the Main thread.
-     */
     private suspend fun captureScreen(): String? = withContext(Dispatchers.Main) {
         try {
             suspendCancellableCoroutine { cont ->
@@ -318,14 +313,8 @@ class JarvisService : AccessibilityService() {
         }
     }
 
-    /**
-     * Public wrapper for relay client to capture screenshots on demand.
-     */
     suspend fun captureScreenPublic(): String? = captureScreen()
 
-    /**
-     * Public wrapper for relay client to get UI tree.
-     */
     fun getUiTreePublic(): String? {
         return try {
             parseUITree(rootInActiveWindow)
@@ -335,10 +324,21 @@ class JarvisService : AccessibilityService() {
         }
     }
 
-    /**
-     * Direct action execution for remote-controlled mode (Z AI is the brain).
-     * Called by RelayClient to execute individual actions without the local ReAct loop.
-     */
+    // ════════════════════════════════════════════════
+    //  AUTO-CAPTURE — Returns screenshot + UI tree after action
+    // ════════════════════════════════════════════════
+
+    suspend fun autoCapture(): Pair<String?, String?> {
+        delay(400) // Wait for UI to settle after action
+        val b64 = captureScreen()
+        val uiTree = try { parseUITree(rootInActiveWindow) } catch (e: Exception) { null }
+        return Pair(b64, uiTree)
+    }
+
+    // ════════════════════════════════════════════════
+    //  DIRECT ACTION EXECUTION (for MCP remote control)
+    // ════════════════════════════════════════════════
+
     fun executeDirectAction(action: String, x: Int, y: Int, x2: Int, y2: Int, text: String, duration: Long = 0L) {
         val agentAction = AgentAction(
             action = action,
@@ -347,6 +347,299 @@ class JarvisService : AccessibilityService() {
             text = text
         )
         executeAction(agentAction)
+    }
+
+    // ════════════════════════════════════════════════
+    //  SEQUENCE EXECUTION — Batch actions, no round-trips
+    // ════════════════════════════════════════════════
+
+    suspend fun executeSequence(actions: List<SequenceAction>): Pair<String?, String?> {
+        mcpState.value = McpCommandState(isExecuting = true, currentCommand = "sequence", commandCount = actions.size)
+
+        for ((index, sa) in actions.withIndex()) {
+            mcpState.value = mcpState.value.copy(
+                lastAction = "${sa.action}${if (sa.text.isNotBlank()) ": ${sa.text.take(30)}" else ""}",
+                commandCount = actions.size - index
+            )
+
+            withContext(Dispatchers.Main) {
+                when (sa.action) {
+                    "TAP" -> executeAction(sa.toAgentAction())
+                    "LONG_PRESS" -> executeAction(sa.toAgentAction())
+                    "SWIPE" -> executeAction(sa.toAgentAction())
+                    "SCROLL" -> executeAction(sa.toAgentAction())
+                    "TYPE" -> executeAction(sa.toAgentAction().copy(action = "TYPE"))
+                    "PRESS_BACK" -> performGlobalAction(GLOBAL_ACTION_BACK)
+                    "PRESS_HOME" -> performGlobalAction(GLOBAL_ACTION_HOME)
+                    "PRESS_RECENTS" -> performGlobalAction(GLOBAL_ACTION_RECENTS)
+                    "OPEN_APP" -> executeAction(sa.toAgentAction().copy(action = "OPEN_APP"))
+                    "WAIT" -> { /* just delay */ }
+                }
+            }
+
+            // Delay between actions
+            val delayMs = if (sa.delay > 0) sa.delay else when (sa.action) {
+                "TAP" -> 300L
+                "LONG_PRESS" -> 700L
+                "SWIPE", "SCROLL" -> 600L
+                "TYPE" -> 500L
+                "OPEN_APP" -> 2000L
+                "PRESS_BACK", "PRESS_HOME", "PRESS_RECENTS" -> 500L
+                "WAIT" -> 1000L
+                else -> 400L
+            }
+            delay(delayMs)
+        }
+
+        mcpState.value = mcpState.value.copy(isExecuting = false, currentCommand = "sequence_done")
+        return autoCapture()
+    }
+
+    // ════════════════════════════════════════════════
+    //  CHROME URL MACRO — Opens Chrome, types URL, loads page
+    //  Runs entirely on phone with zero round-trips during execution
+    // ════════════════════════════════════════════════
+
+    suspend fun openChromeUrl(url: String): Pair<String?, String?> {
+        mcpState.value = McpCommandState(isExecuting = true, currentCommand = "open_chrome_url", lastAction = "Opening Chrome...")
+
+        // Step 1: Find and open Chrome
+        val chromePackage = findChromePackage()
+        if (chromePackage != null) {
+            withContext(Dispatchers.Main) {
+                val intent = packageManager.getLaunchIntentForPackage(chromePackage)
+                if (intent != null) {
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                    startActivity(intent)
+                }
+            }
+        } else {
+            // Fallback: use ACTION_VIEW with Chrome package
+            withContext(Dispatchers.Main) {
+                try {
+                    val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    intent.setPackage("com.android.chrome")
+                    startActivity(intent)
+                } catch (e: Exception) {
+                    // Final fallback: open without specifying package
+                    val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    startActivity(intent)
+                }
+            }
+            // If we used the fallback, the page is already loading — wait and capture
+            delay(3000)
+            mcpState.value = mcpState.value.copy(isExecuting = false)
+            return autoCapture()
+        }
+
+        delay(2000) // Wait for Chrome to open
+
+        mcpState.value = mcpState.value.copy(lastAction = "Tapping URL bar...")
+
+        // Step 2: Find the URL bar in the UI tree and tap it
+        val urlBarBounds = withContext(Dispatchers.Main) { findUrlBarBounds() }
+        if (urlBarBounds != null) {
+            val centerX = (urlBarBounds.left + urlBarBounds.right) / 2
+            val centerY = (urlBarBounds.top + urlBarBounds.bottom) / 2
+
+            // Tap URL bar
+            withContext(Dispatchers.Main) {
+                executeDirectAction("TAP", centerX, centerY, 0, 0, "")
+            }
+            delay(800) // Wait for keyboard + URL bar focus
+
+            mcpState.value = mcpState.value.copy(lastAction = "Typing URL...")
+
+            // Step 3: Type the URL using clipboard paste (most reliable method)
+            withContext(Dispatchers.Main) {
+                typeWithClipboard(url)
+            }
+            delay(500)
+
+            // Step 4: Press Enter by finding the "Go" or "Enter" key on keyboard, or use dispatchGesture
+            mcpState.value = mcpState.value.copy(lastAction = "Pressing Enter...")
+            withContext(Dispatchers.Main) {
+                pressEnterKey()
+            }
+
+            // Step 5: Wait for page to load
+            delay(4000)
+        } else {
+            // Couldn't find URL bar — try using ACTION_VIEW with Chrome package as fallback
+            Log.w(TAG, "Chrome URL bar not found in UI tree, using ACTION_VIEW fallback")
+            withContext(Dispatchers.Main) {
+                try {
+                    val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    intent.setPackage("com.android.chrome")
+                    startActivity(intent)
+                } catch (e: Exception) {
+                    val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    startActivity(intent)
+                }
+            }
+            delay(3000)
+        }
+
+        mcpState.value = mcpState.value.copy(isExecuting = false, lastAction = "Chrome URL done")
+        return autoCapture()
+    }
+
+    // ════════════════════════════════════════════════
+    //  ENHANCED TYPE — Keyboard injection / clipboard paste
+    //  Works with Chrome URL bar and non-standard text fields
+    // ════════════════════════════════════════════════
+
+    fun typeWithClipboard(text: String) {
+        try {
+            val clip = android.content.ClipData.newPlainText("jarvis", text)
+            (getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager)
+                .setPrimaryClip(clip)
+
+            // Find the currently focused node
+            val rootNode = rootInActiveWindow ?: return
+            val focusedNode = findFocusedNode(rootNode)
+
+            if (focusedNode != null) {
+                // Try ACTION_PASTE on the focused node
+                focusedNode.performAction(AccessibilityNodeInfo.ACTION_PASTE)
+                Log.d(TAG, "TYPE via clipboard PASTE on focused node: '$text'")
+            } else {
+                // Fallback: try to find any editable node at the center of screen
+                val fallbackNode = findAnyEditableNode(rootNode)
+                if (fallbackNode != null) {
+                    fallbackNode.performAction(AccessibilityNodeInfo.ACTION_PASTE)
+                    Log.d(TAG, "TYPE via clipboard PASTE on fallback node: '$text'")
+                } else {
+                    Log.w(TAG, "TYPE: No focused or editable node found for paste")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "typeWithClipboard failed: ${e.message}", e)
+        }
+    }
+
+    private fun findFocusedNode(root: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
+        if (root == null) return null
+        if (root.isAccessibilityFocused || root.isFocused) return root
+        for (i in 0 until root.childCount) {
+            val found = findFocusedNode(root.getChild(i))
+            if (found != null) return found
+        }
+        return null
+    }
+
+    private fun findAnyEditableNode(root: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
+        if (root == null) return null
+        if (root.isEditable) return root
+        for (i in 0 until root.childCount) {
+            val found = findAnyEditableNode(root.getChild(i))
+            if (found != null) return found
+        }
+        return null
+    }
+
+    // ════════════════════════════════════════════════
+    //  CHROME HELPERS
+    // ════════════════════════════════════════════════
+
+    private fun findChromePackage(): String? {
+        for (pkg in CHROME_PACKAGES) {
+            try {
+                packageManager.getPackageInfo(pkg, 0)
+                return pkg
+            } catch (e: Exception) { /* not installed */ }
+        }
+        return null
+    }
+
+    private fun findUrlBarBounds(): android.graphics.Rect? {
+        val rootNode = rootInActiveWindow ?: return null
+        val candidates = mutableListOf<Pair<AccessibilityNodeInfo, android.graphics.Rect>>()
+
+        fun search(node: AccessibilityNodeInfo) {
+            val rect = android.graphics.Rect()
+            node.getBoundsInScreen(rect)
+
+            val resId = node.viewIdResourceName ?: ""
+            val className = node.className?.toString() ?: ""
+            val text = node.text?.toString() ?: ""
+            val desc = node.contentDescription?.toString() ?: ""
+            val isClickable = node.isClickable
+
+            // Chrome URL bar identifiers
+            val isUrlBar = resId.contains("url_bar", ignoreCase = true) ||
+                    resId.contains("search_box", ignoreCase = true) ||
+                    resId.contains("omnibox", ignoreCase = true) ||
+                    resId.contains("toolbar", ignoreCase = true) ||
+                    resId.contains("location_bar", ignoreCase = true) ||
+                    (className.contains("EditText", ignoreCase = true) &&
+                            (resId.contains("chrome", ignoreCase = true) ||
+                                    resId.contains("com.android.chrome", ignoreCase = true))) ||
+                    // Mobile Chrome: the URL bar is typically an EditText at the top of screen
+                    (className.contains("EditText", ignoreCase = true) &&
+                            rect.top < 300 && rect.width() > 400 && isClickable)
+
+            if (isUrlBar) {
+                candidates.add(Pair(node, rect))
+            }
+
+            for (i in 0 until node.childCount) {
+                search(node.getChild(i))
+            }
+        }
+
+        search(rootNode)
+
+        // Return the most likely URL bar (top-most, widest EditText)
+        return candidates
+            .sortedWith(compareByDescending<Pair<AccessibilityNodeInfo, android.graphics.Rect>> { it.second.width() }
+                .thenBy { it.second.top })
+            .firstOrNull()?.second
+    }
+
+    private fun pressEnterKey() {
+        // Try to find and click the "Go" or "Enter" button on the keyboard
+        val rootNode = rootInActiveWindow ?: return
+
+        fun searchEnter(node: AccessibilityNodeInfo): Boolean {
+            val text = node.text?.toString()?.lowercase() ?: ""
+            val desc = node.contentDescription?.toString()?.lowercase() ?: ""
+            val resId = node.viewIdResourceName?.lowercase() ?: ""
+
+            if (node.isClickable && (
+                        text == "go" || text == "enter" || text == "search" ||
+                        desc == "go" || desc == "enter" || desc == "search" ||
+                        resId.contains("enter", ignoreCase = true) ||
+                        resId.contains("action_go", ignoreCase = true) ||
+                        resId.contains("action_search", ignoreCase = true) ||
+                        resId.contains("ime_action", ignoreCase = true)
+                        )) {
+                node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                Log.d(TAG, "Pressed Enter via keyboard button: $text $desc $resId")
+                return true
+            }
+
+            for (i in 0 until node.childCount) {
+                if (searchEnter(node.getChild(i))) return true
+            }
+            return false
+        }
+
+        if (!searchEnter(rootNode)) {
+            // Fallback: use IME action by finding the focused node and performing ACTION_IME_ACTION
+            val focused = findFocusedNode(rootNode)
+            if (focused != null) {
+                focused.performAction(AccessibilityNodeInfo.ACTION_IME_ACTION)
+                Log.d(TAG, "Pressed Enter via IME ACTION")
+            } else {
+                Log.w(TAG, "Could not find Enter key or focused node")
+            }
+        }
     }
 
     // ════════════════════════════════════════════════
@@ -397,7 +690,7 @@ class JarvisService : AccessibilityService() {
                 "TAP" -> {
                     val path = Path().apply { moveTo(action.x.toFloat(), action.y.toFloat()) }
                     val gesture = GestureDescription.Builder()
-                        .addStroke(GestureDescription.StrokeDescription(path, 0, 100))
+                        .addStroke(GestureDescription.StrokeDescription(path, 0, 80))
                         .build()
                     dispatchGesture(gesture, null, null)
                     Log.d(TAG, "TAP at (${action.x}, ${action.y})")
@@ -417,32 +710,59 @@ class JarvisService : AccessibilityService() {
                 }
 
                 "TYPE" -> {
+                    // Step 1: Tap at the coordinates to focus the field
                     val path = Path().apply { moveTo(action.x.toFloat(), action.y.toFloat()) }
                     val tapGesture = GestureDescription.Builder()
-                        .addStroke(GestureDescription.StrokeDescription(path, 0, 100))
+                        .addStroke(GestureDescription.StrokeDescription(path, 0, 80))
                         .build()
                     dispatchGesture(tapGesture, null, null)
 
-                    Thread.sleep(300)
+                    Thread.sleep(400)
 
+                    // Step 2: Try SET_TEXT first (works for standard EditText)
                     val node = findNodeAt(rootInActiveWindow, action.x, action.y)
+                    var typed = false
+
                     if (node != null && node.isEditable) {
+                        // Try SET_TEXT
                         val args = Bundle().apply {
                             putCharSequence(
                                 AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
                                 action.text
                             )
                         }
-                        node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
-                        Log.d(TAG, "TYPE via SET_TEXT: '${action.text}' at (${action.x},${action.y})")
-                    } else if (node != null) {
+                        val result = node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+                        if (result) {
+                            typed = true
+                            Log.d(TAG, "TYPE via SET_TEXT: '${action.text}' at (${action.x},${action.y})")
+                        }
+                    }
+
+                    // Step 3: If SET_TEXT failed, use clipboard paste (works with Chrome URL bar)
+                    if (!typed) {
+                        val focusedNode = findFocusedNode(rootInActiveWindow)
                         val clip = android.content.ClipData.newPlainText("jarvis", action.text)
                         (getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager)
                             .setPrimaryClip(clip)
-                        node.performAction(AccessibilityNodeInfo.ACTION_PASTE)
-                        Log.d(TAG, "TYPE via PASTE: '${action.text}' at (${action.x},${action.y})")
-                    } else {
-                        Log.w(TAG, "TYPE: No editable node found at (${action.x},${action.y})")
+
+                        val targetNode = focusedNode ?: node
+                        if (targetNode != null) {
+                            val pasteResult = targetNode.performAction(AccessibilityNodeInfo.ACTION_PASTE)
+                            if (pasteResult) {
+                                typed = true
+                                Log.d(TAG, "TYPE via PASTE: '${action.text}' at (${action.x},${action.y})")
+                            }
+                        }
+
+                        // Final fallback: try PASTE on the node at position
+                        if (!typed && node != null && node !== targetNode) {
+                            node.performAction(AccessibilityNodeInfo.ACTION_PASTE)
+                            Log.d(TAG, "TYPE via PASTE (fallback): '${action.text}' at (${action.x},${action.y})")
+                        }
+                    }
+
+                    if (!typed) {
+                        Log.w(TAG, "TYPE: All methods failed at (${action.x},${action.y})")
                     }
                 }
 

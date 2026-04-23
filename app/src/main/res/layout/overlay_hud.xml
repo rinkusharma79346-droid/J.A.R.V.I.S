@@ -3,16 +3,93 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="horizontal"
-    android:background="#CC050510"
+    android:background="@drawable/hud_glass_bg"
     android:paddingHorizontal="16dp"
     android:paddingVertical="10dp"
-    android:gravity="center_vertical">
-    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
-        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
-            <TextView android:id="@+id/hudStatus" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="JARVIS Active" android:textColor="@color/cyan_primary" android:textSize="11sp" android:fontFamily="monospace" android:textStyle="bold" android:maxLines="1" android:ellipsize="end" />
-            <TextView android:id="@+id/hudRelay" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="" android:textColor="@color/green_accent" android:textSize="9sp" android:fontFamily="monospace" android:layout_marginStart="6dp" />
+    android:gravity="center_vertical"
+    android:elevation="16dp">
+
+    <!-- Status indicator dot -->
+    <View
+        android:id="@+id/hudDot"
+        android:layout_width="8dp"
+        android:layout_height="8dp"
+        android:background="@drawable/status_dot_active"
+        android:layout_marginEnd="10dp" />
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <!-- Title row: JARVIS ● MCP -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:id="@+id/hudStatus"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="JARVIS"
+                android:textColor="@color/cyan_primary"
+                android:textSize="12sp"
+                android:fontFamily="monospace"
+                android:textStyle="bold"
+                android:maxLines="1"
+                android:ellipsize="end" />
+
+            <TextView
+                android:id="@+id/hudRelay"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text=""
+                android:textColor="@color/green_accent"
+                android:textSize="9sp"
+                android:fontFamily="monospace"
+                android:layout_marginStart="6dp" />
         </LinearLayout>
-        <TextView android:id="@+id/hudStep" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="" android:textColor="#66FFFFFF" android:textSize="9sp" android:fontFamily="monospace" />
+
+        <!-- Action text -->
+        <TextView
+            android:id="@+id/hudAction"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text=""
+            android:textColor="@color/text_secondary"
+            android:textSize="10sp"
+            android:fontFamily="monospace"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:layout_marginTop="2dp" />
+
+        <!-- Step counter -->
+        <TextView
+            android:id="@+id/hudStep"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text=""
+            android:textColor="@color/text_tertiary"
+            android:textSize="9sp"
+            android:fontFamily="monospace" />
     </LinearLayout>
-    <Button android:id="@+id/btnKill" android:layout_width="wrap_content" android:layout_height="32dp" android:text="KILL" android:background="@drawable/btn_red" android:textColor="@color/white" android:textSize="10sp" android:fontFamily="monospace" android:textStyle="bold" android:paddingHorizontal="16dp" android:minWidth="64dp" />
+
+    <!-- KILL button -->
+    <Button
+        android:id="@+id/btnKill"
+        android:layout_width="wrap_content"
+        android:layout_height="32dp"
+        android:text="KILL"
+        android:background="@drawable/btn_red"
+        android:textColor="@color/white"
+        android:textSize="10sp"
+        android:fontFamily="monospace"
+        android:textStyle="bold"
+        android:paddingHorizontal="16dp"
+        android:minWidth="64dp"
+        android:layout_marginStart="8dp" />
 </LinearLayout>

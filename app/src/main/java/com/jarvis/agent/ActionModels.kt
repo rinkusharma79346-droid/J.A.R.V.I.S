@@ -1,6 +1,6 @@
 package com.jarvis.agent
 
-// ─── Agent Action (returned by AI) ───
+// ─── Agent Action (returned by AI / sent via MCP) ───
 data class AgentAction(
     val action: String = "FAIL",
     val x: Int = 0,
@@ -10,8 +10,27 @@ data class AgentAction(
     val text: String = "",
     val direction: String = "",
     val app: String = "",
-    val reason: String = ""
+    val reason: String = "",
+    val delay: Long = 0L
 )
+
+// ─── Sequence Action (for batch commands) ───
+data class SequenceAction(
+    val action: String,       // TAP, SWIPE, TYPE, LONG_PRESS, PRESS_BACK, PRESS_HOME, PRESS_RECENTS, WAIT
+    val x: Int = 0,
+    val y: Int = 0,
+    val x2: Int = 0,
+    val y2: Int = 0,
+    val text: String = "",
+    val app: String = "",
+    val delay: Long = 0L,     // Override delay after this action (ms)
+    val duration: Long = 0L   // Swipe/gesture duration (ms)
+) {
+    fun toAgentAction(): AgentAction = AgentAction(
+        action = action, x = x, y = y, x2 = x2, y2 = y2,
+        text = text, app = app, delay = delay
+    )
+}
 
 // ─── Agent Request (sent to AI provider) ───
 data class AgentRequest(
@@ -47,4 +66,12 @@ data class ProviderConfig(
     val model: String = "",
     val baseUrl: String = "",
     val supportsVision: Boolean = true
+)
+
+// ─── MCP Command State (for PiP overlay) ───
+data class McpCommandState(
+    val isExecuting: Boolean = false,
+    val currentCommand: String = "",
+    val commandCount: Int = 0,
+    val lastAction: String = ""
 )

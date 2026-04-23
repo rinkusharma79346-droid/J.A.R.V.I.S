@@ -1,6 +1,6 @@
 {
   "name": "jarvis-mcp-server",
-  "version": "3.0.0",
+  "version": "4.0.0",
   "description": "JARVIS MCP Server — Control your JARVIS Android agent from Claude Desktop, Cursor, or any MCP client via HTTP long-polling relay",
   "main": "index.js",
   "bin": {

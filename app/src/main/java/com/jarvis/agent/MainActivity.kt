@@ -7,6 +7,8 @@ import android.provider.Settings
 import android.view.WindowManager
 import android.view.animation.AlphaAnimation
 import android.view.animation.Animation
+import android.view.animation.DecelerateInterpolator
+import android.view.animation.OvershootInterpolator
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.jarvis.agent.databinding.ActivityMainBinding
@@ -20,49 +22,123 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
-        window.setFlags(WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS, WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS)
 
+        // Edge-to-edge layout
+        window.setFlags(
+            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+        )
+
+        // ─── Animated entrance ───
+        animateEntrance()
+
+        // ─── Glow pulse animation on title ───
         startGlowPulse()
 
+        // ─── Permissions button ───
         binding.btnPerms.setOnClickListener {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-            if (!Settings.canDrawOverlays(this)) startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+            if (!Settings.canDrawOverlays(this)) {
+                startActivity(
+                    Intent(
+                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        Uri.parse("package:$packageName")
+                    )
+                )
+            }
         }
 
-        binding.btnSettings.setOnClickListener { startActivity(Intent(this, SettingsActivity::class.java)) }
+        // ─── Settings button ───
+        binding.btnSettings.setOnClickListener {
+            startActivity(Intent(this, SettingsActivity::class.java))
+        }
 
+        // ─── Execute button ───
         binding.btnExecute.setOnClickListener {
             val task = binding.etTask.text.toString().trim()
-            if (task.isBlank()) { binding.etTask.error = "Enter a task first"; return@setOnClickListener }
-            if (!Settings.canDrawOverlays(this)) { binding.tvStatus.text = "Grant overlay permission first!"; return@setOnClickListener }
+            if (task.isBlank()) {
+                binding.etTask.error = "Enter a task first"
+                return@setOnClickListener
+            }
+            if (!Settings.canDrawOverlays(this)) {
+                binding.tvStatus.text = "Grant overlay permission first!"
+                return@setOnClickListener
+            }
+            // Start HUD overlay for local task execution
             startService(Intent(this, HUDService::class.java))
             JarvisService.startTask(task)
         }
 
+        // ─── Kill button ───
         binding.btnStop.setOnClickListener { JarvisService.stopTask() }
 
+        // ─── Load last task from memory ───
         val memory = AgentMemory(getSharedPreferences("jarvis_settings", MODE_PRIVATE))
         val lastTask = memory.getLastTask()
         if (lastTask.isNotBlank()) binding.etTask.setText(lastTask)
 
-        // Observe status updates
-        lifecycleScope.launch { JarvisService.status.collectLatest { binding.tvStatus.text = it; binding.tvStatus.alpha = 0f; binding.tvStatus.animate().alpha(1f).setDuration(300).start() } }
-        lifecycleScope.launch { JarvisService.currentStep.collectLatest { binding.tvStep.text = if (it > 0) "STEP $it" else "IDLE" } }
-        lifecycleScope.launch { JarvisService.currentAction.collectLatest { binding.tvAction.text = it; binding.tvAction.alpha = 0f; binding.tvAction.animate().alpha(1f).setDuration(200).start() } }
-        lifecycleScope.launch { JarvisService.isRunning.collectLatest { r -> binding.btnExecute.isEnabled = !r; binding.btnStop.isEnabled = r; binding.btnExecute.alpha = if (r) 0.4f else 1f; binding.btnStop.alpha = if (r) 1f else 0.4f } }
-
-        // Relay status indicator
+        // ─── Observe JarvisService flows ───
         lifecycleScope.launch {
-            RelayClient.isConnected.collectLatest { connected ->
-                if (connected) {
-                    binding.tvRelayStatus.text = "● MCP"
-                    binding.tvRelayStatus.setTextColor(getColor(R.color.green_accent))
-                } else {
-                    binding.tvRelayStatus.text = "○ MCP"
-                    binding.tvRelayStatus.setTextColor(getColor(R.color.gray))
+            JarvisService.status.collectLatest { status ->
+                binding.tvStatus.text = status
+                binding.tvStatus.alpha = 0f
+                binding.tvStatus.animate()
+                    .alpha(1f)
+                    .setDuration(300)
+                    .setInterpolator(DecelerateInterpolator())
+                    .start()
+            }
+        }
+
+        lifecycleScope.launch {
+            JarvisService.currentStep.collectLatest { step ->
+                binding.tvStep.text = if (step > 0) "STEP $step" else "IDLE"
+            }
+        }
+
+        lifecycleScope.launch {
+            JarvisService.currentAction.collectLatest { action ->
+                binding.tvAction.text = action
+                binding.tvAction.alpha = 0f
+                binding.tvAction.animate()
+                    .alpha(1f)
+                    .setDuration(200)
+                    .setInterpolator(DecelerateInterpolator())
+                    .start()
+            }
+        }
+
+        lifecycleScope.launch {
+            JarvisService.isRunning.collectLatest { running ->
+                binding.btnExecute.isEnabled = !running
+                binding.btnStop.isEnabled = running
+                binding.btnExecute.alpha = if (running) 0.4f else 1f
+                binding.btnStop.alpha = if (running) 1f else 0.4f
+
+                // Update status dot
+                if (running) {
+                    binding.statusDot.setBackgroundResource(R.drawable.status_dot_active)
+                } else if (!RelayClient.mcpActive.value) {
+                    binding.statusDot.setBackgroundResource(R.drawable.status_dot_idle)
                 }
             }
         }
+
+        // ─── MCP / Relay connection status ───
+        lifecycleScope.launch {
+            RelayClient.isConnected.collectLatest { connected ->
+                if (connected) {
+                    binding.tvRelayStatus.text = "MCP"
+                    binding.tvRelayStatus.setTextColor(getColor(R.color.green_accent))
+                    binding.mcpDot.setBackgroundResource(R.drawable.mcp_indicator)
+                } else {
+                    binding.tvRelayStatus.text = "MCP"
+                    binding.tvRelayStatus.setTextColor(getColor(R.color.gray))
+                    binding.mcpDot.setBackgroundResource(R.drawable.mcp_indicator_off)
+                }
+            }
+        }
+
         lifecycleScope.launch {
             RelayClient.relayStatus.collectLatest { status ->
                 if (!RelayClient.isConnected.value) {
@@ -80,21 +156,73 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        // ─── MCP active state — update status dot ───
+        lifecycleScope.launch {
+            RelayClient.mcpActive.collectLatest { active ->
+                if (active) {
+                    binding.statusDot.setBackgroundResource(R.drawable.status_dot_active)
+                } else if (!JarvisService.isRunning.value) {
+                    binding.statusDot.setBackgroundResource(R.drawable.status_dot_idle)
+                }
+            }
+        }
+
         updateApiStatus()
     }
 
-    override fun onResume() { super.onResume(); updateApiStatus() }
+    override fun onResume() {
+        super.onResume()
+        updateApiStatus()
+    }
 
     private fun updateApiStatus() {
         val config = SettingsManager.getConfig(this)
         binding.tvApiProvider.text = "API: ${config.provider.replaceFirstChar { it.uppercase() }} / ${config.model}"
         val hasKey = config.apiKey.isNotBlank() || config.provider == "gemini"
         binding.tvApiKeyStatus.text = "${if (hasKey) "●" else "○"} API Key"
-        binding.tvApiKeyStatus.setTextColor(getColor(if (hasKey) R.color.green_accent else R.color.red_accent))
+        binding.tvApiKeyStatus.setTextColor(
+            getColor(if (hasKey) R.color.green_accent else R.color.red_accent)
+        )
     }
 
+    /** Animate the title with a pulsing glow behind it. */
     private fun startGlowPulse() {
-        val anim = AlphaAnimation(0.3f, 0.8f); anim.duration = 2000; anim.startOffset = 500; anim.repeatMode = Animation.REVERSE; anim.repeatCount = Animation.INFINITE
+        val anim = AlphaAnimation(0.25f, 0.7f)
+        anim.duration = 2500
+        anim.startOffset = 300
+        anim.repeatMode = Animation.REVERSE
+        anim.repeatCount = Animation.INFINITE
+        anim.interpolator = DecelerateInterpolator()
         binding.ivGlow.startAnimation(anim)
+
+        // Subtle title text glow pulse
+        val titlePulse = AlphaAnimation(0.85f, 1.0f)
+        titlePulse.duration = 2500
+        titlePulse.startOffset = 300
+        titlePulse.repeatMode = Animation.REVERSE
+        titlePulse.repeatCount = Animation.INFINITE
+        titlePulse.interpolator = DecelerateInterpolator()
+        binding.tvTitle.startAnimation(titlePulse)
+    }
+
+    /** Entrance animation — staggered fade-in for main elements. */
+    private fun animateEntrance() {
+        // Title area
+        binding.ivGlow.alpha = 0f
+        binding.tvTitle.alpha = 0f
+
+        binding.ivGlow.animate()
+            .alpha(0.4f)
+            .setDuration(600)
+            .setStartDelay(100)
+            .setInterpolator(DecelerateInterpolator())
+            .start()
+
+        binding.tvTitle.animate()
+            .alpha(1f)
+            .setDuration(500)
+            .setStartDelay(200)
+            .setInterpolator(OvershootInterpolator(0.8f))
+            .start()
     }
 }

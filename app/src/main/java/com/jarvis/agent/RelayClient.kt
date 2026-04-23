@@ -7,6 +7,7 @@ import android.util.Base64
 import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.JsonObject
+import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import okhttp3.*
@@ -16,32 +17,21 @@ import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 /**
- * HTTP Long-Polling relay client for JARVIS MCP.
+ * JARVIS MCP Relay Client v3.0 — HTTP Long-Polling
  *
- * Bulletproof on Render free tier — no WebSockets, no connection drops.
- * Uses simple HTTP requests:
- *   - POST /api/register   → register device
- *   - GET  /api/poll       → long-poll for commands (25s timeout)
- *   - POST /api/status     → push status updates
- *   - POST /api/response   → push command responses
- *   - GET  /api/warmup     → keep server alive (prevent cold starts)
+ * Key improvements for speed:
+ *   - Auto-capture: Every action response includes screenshot + UI tree
+ *   - Sequence commands: Execute multiple actions with one round-trip
+ *   - Chrome URL macro: Open URL in Chrome with zero round-trips during execution
+ *   - Enhanced type_text: Uses clipboard paste for Chrome URL bar compatibility
+ *   - PiP overlay: Shows when MCP commands are being processed
  *
- * Direct Action Commands (Z AI is the brain — no local Gemini needed):
- *   - tap         → tap at (x, y)
- *   - swipe       → swipe from (x,y) to (x2,y2)
- *   - long_press  → long press at (x, y)
- *   - type_text   → type text at (x, y)
- *   - press_back  → press back button
- *   - press_home  → press home button
- *   - press_recents → press recents button
- *   - open_app    → open app by name or package
- *   - screenshot  → capture screenshot
- *   - ui_tree     → get current UI tree
- *   - execute     → delegate to local agent (needs Gemini API)
- *   - status      → get device status
- *   - kill        → kill running task
- *   - list_apps   → list installed apps
- *   - ping        → pong
+ * Relay endpoints:
+ *   POST /api/register   → register device
+ *   GET  /api/poll       → long-poll for commands (25s timeout)
+ *   POST /api/status     → push status updates
+ *   POST /api/response   → push command responses
+ *   GET  /api/warmup     → keep server alive
  */
 object RelayClient {
 
@@ -52,16 +42,19 @@ object RelayClient {
     private const val RECONNECT_BASE_MS = 3000L
     private const val RECONNECT_MAX_MS = 60000L
     private const val STATUS_PUSH_INTERVAL_MS = 3000L
-    private const val WARMUP_INTERVAL_MS = 12 * 60 * 1000L // 12 min (Render sleeps after 15min)
+    private const val WARMUP_INTERVAL_MS = 12 * 60 * 1000L
 
     val isConnected = MutableStateFlow(false)
     val relayStatus = MutableStateFlow("Disconnected")
 
-    // Longer timeouts for Render cold starts
+    // Track MCP activity for PiP overlay
+    val mcpActive = MutableStateFlow(false)
+    val mcpLastAction = MutableStateFlow("")
+
     private val client = OkHttpClient.Builder()
-        .connectTimeout(60, TimeUnit.SECONDS)  // 60s for cold starts
-        .readTimeout(35, TimeUnit.SECONDS)      // Must be > server's 25s poll timeout
-        .writeTimeout(30, TimeUnit.SECONDS)     // Generous for cold starts
+        .connectTimeout(60, TimeUnit.SECONDS)
+        .readTimeout(35, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS)
         .build()
     private val gson = Gson()
     private var prefs: SharedPreferences? = null
@@ -73,8 +66,8 @@ object RelayClient {
     private var warmupJob: Job? = null
     private var consecutiveErrors = 0
     private var registered = false
+    private var mcpAutoResetJob: Job? = null
 
-    // ─── Config ───
     fun init(prefs: SharedPreferences, service: JarvisService) {
         this.prefs = prefs
         this.serviceRef = service
@@ -107,9 +100,7 @@ object RelayClient {
         isConnected.value = true
         relayStatus.value = "Connecting..."
 
-        // Start the poll loop
         pollJob = scope.launch {
-            // Register first (with cold-start retry)
             if (!registerDeviceWithRetry()) {
                 isConnected.value = false
                 relayStatus.value = "Registration failed — retrying..."
@@ -121,13 +112,8 @@ object RelayClient {
             isConnected.value = true
             relayStatus.value = "Connected (HTTP polling)"
 
-            // Start status push loop
             startStatusPush()
-
-            // Start warmup pings (prevent Render from sleeping)
             startWarmupPings()
-
-            // Start poll loop
             pollLoop()
         }
     }
@@ -139,13 +125,25 @@ object RelayClient {
         statusPushJob = null
         warmupJob?.cancel()
         warmupJob = null
+        mcpAutoResetJob?.cancel()
+        mcpAutoResetJob = null
         isConnected.value = false
         relayStatus.value = "Disconnected"
         registered = false
         consecutiveErrors = 0
+        mcpActive.value = false
     }
 
-    // ─── Registration (with cold-start retry) ───
+    // ─── Auto-reset MCP active state after 10s of no commands ───
+    private fun scheduleMcpAutoReset() {
+        mcpAutoResetJob?.cancel()
+        mcpAutoResetJob = scope.launch {
+            delay(10_000L)
+            mcpActive.value = false
+        }
+    }
+
+    // ─── Registration ───
     private suspend fun registerDeviceWithRetry(): Boolean {
         val maxRetries = 3
         for (attempt in 1..maxRetries) {
@@ -189,7 +187,7 @@ object RelayClient {
         }
     }
 
-    // ─── Warmup Pings (prevent Render cold starts) ───
+    // ─── Warmup Pings ───
     private fun startWarmupPings() {
         warmupJob?.cancel()
         warmupJob = scope.launch {
@@ -216,7 +214,6 @@ object RelayClient {
                 val commands = pollForCommands()
                 consecutiveErrors = 0
 
-                // Process each command
                 for (cmd in commands) {
                     try {
                         handleCommand(cmd)
@@ -296,25 +293,44 @@ object RelayClient {
     private fun handleCommand(cmd: JsonObject) {
         val type = cmd.get("type")?.asString ?: return
         val requestId = cmd.get("requestId")?.asString ?: ""
+        val capture = cmd.get("capture")?.asBoolean ?: true  // Auto-capture by default
 
-        Log.d(TAG, "Command received: $type (requestId: $requestId)")
+        Log.d(TAG, "Command received: $type (requestId: $requestId, capture: $capture)")
+
+        // Show PiP overlay when MCP commands arrive
+        mcpActive.value = true
+        mcpLastAction.value = type
+
+        // CRITICAL FIX: Start HUD overlay for MCP commands
+        // Previously, HUD only started from EXECUTE button in MainActivity.
+        // Now it also shows when MCP commands arrive via relay.
+        serviceRef?.let { service ->
+            HUDService.showForMcp(service)
+        }
+
+        // Auto-reset mcpActive after 10s of no new commands
+        scheduleMcpAutoReset()
 
         when (type) {
-            // ─── Direct Action Commands (Z AI controlled — no Gemini needed) ───
-            "tap" -> handleTap(cmd, requestId)
-            "swipe" -> handleSwipe(cmd, requestId)
-            "long_press" -> handleLongPress(cmd, requestId)
-            "type_text" -> handleTypeText(cmd, requestId)
-            "press_back" -> handlePressBack(requestId)
-            "press_home" -> handlePressHome(requestId)
-            "press_recents" -> handlePressRecents(requestId)
-            "open_app" -> handleOpenApp(cmd, requestId)
-            "open_url" -> handleOpenUrl(cmd, requestId)
+            // ─── Direct Action Commands ───
+            "tap" -> handleTap(cmd, requestId, capture)
+            "swipe" -> handleSwipe(cmd, requestId, capture)
+            "long_press" -> handleLongPress(cmd, requestId, capture)
+            "type_text" -> handleTypeText(cmd, requestId, capture)
+            "press_back" -> handlePressBack(requestId, capture)
+            "press_home" -> handlePressHome(requestId, capture)
+            "press_recents" -> handlePressRecents(requestId, capture)
+            "open_app" -> handleOpenApp(cmd, requestId, capture)
+            "open_url" -> handleOpenUrl(cmd, requestId, capture)
             "screenshot" -> handleScreenshot(requestId)
             "ui_tree" -> handleUiTree(requestId)
             "screenshot_and_ui" -> handleScreenshotAndUi(requestId)
 
-            // ─── Legacy commands (uses local Gemini agent) ───
+            // ─── Sequence & Macro Commands (SPEED BOOST) ───
+            "sequence" -> handleSequence(cmd, requestId)
+            "open_chrome_url" -> handleOpenChromeUrl(cmd, requestId)
+
+            // ─── Legacy commands ───
             "execute" -> handleExecute(cmd, requestId)
             "status" -> handleStatus(requestId)
             "kill" -> handleKill(requestId)
@@ -329,10 +345,10 @@ object RelayClient {
     }
 
     // ══════════════════════════════════════════════════════════════
-    //  DIRECT ACTION HANDLERS — Z AI controls, phone executes
+    //  DIRECT ACTION HANDLERS — with auto-capture
     // ══════════════════════════════════════════════════════════════
 
-    private fun handleTap(cmd: JsonObject, requestId: String) {
+    private fun handleTap(cmd: JsonObject, requestId: String, capture: Boolean) {
         val x = cmd.get("x")?.asInt ?: 0
         val y = cmd.get("y")?.asInt ?: 0
         val service = serviceRef ?: run {
@@ -344,17 +360,32 @@ object RelayClient {
             withContext(Dispatchers.Main) {
                 service.executeDirectAction("TAP", x, y, 0, 0, "")
             }
-            delay(300) // Wait for tap to register
-            sendResponse(requestId, mapOf(
-                "type" to "tap_done",
-                "x" to x, "y" to y,
-                "success" to true,
-                "deviceId" to getDeviceId()
-            ))
+
+            if (capture) {
+                val (b64, uiTree) = service.autoCapture()
+                sendResponse(requestId, mapOf(
+                    "type" to "tap_done",
+                    "x" to x, "y" to y,
+                    "success" to true,
+                    "deviceId" to getDeviceId(),
+                    "base64" to (b64 ?: ""),
+                    "mimeType" to "image/jpeg",
+                    "uiTree" to (uiTree ?: "")
+                ))
+            } else {
+                delay(300)
+                sendResponse(requestId, mapOf(
+                    "type" to "tap_done",
+                    "x" to x, "y" to y,
+                    "success" to true,
+                    "deviceId" to getDeviceId()
+                ))
+            }
+            mcpLastAction.value = "tap($x,$y)"
         }
     }
 
-    private fun handleSwipe(cmd: JsonObject, requestId: String) {
+    private fun handleSwipe(cmd: JsonObject, requestId: String, capture: Boolean) {
         val x = cmd.get("x")?.asInt ?: 0
         val y = cmd.get("y")?.asInt ?: 0
         val x2 = cmd.get("x2")?.asInt ?: 0
@@ -369,17 +400,32 @@ object RelayClient {
             withContext(Dispatchers.Main) {
                 service.executeDirectAction("SWIPE", x, y, x2, y2, "", duration)
             }
-            delay(duration + 200)
-            sendResponse(requestId, mapOf(
-                "type" to "swipe_done",
-                "x" to x, "y" to y, "x2" to x2, "y2" to y2,
-                "success" to true,
-                "deviceId" to getDeviceId()
-            ))
+
+            if (capture) {
+                val (b64, uiTree) = service.autoCapture()
+                sendResponse(requestId, mapOf(
+                    "type" to "swipe_done",
+                    "x" to x, "y" to y, "x2" to x2, "y2" to y2,
+                    "success" to true,
+                    "deviceId" to getDeviceId(),
+                    "base64" to (b64 ?: ""),
+                    "mimeType" to "image/jpeg",
+                    "uiTree" to (uiTree ?: "")
+                ))
+            } else {
+                delay(duration + 200)
+                sendResponse(requestId, mapOf(
+                    "type" to "swipe_done",
+                    "x" to x, "y" to y, "x2" to x2, "y2" to y2,
+                    "success" to true,
+                    "deviceId" to getDeviceId()
+                ))
+            }
+            mcpLastAction.value = "swipe"
         }
     }
 
-    private fun handleLongPress(cmd: JsonObject, requestId: String) {
+    private fun handleLongPress(cmd: JsonObject, requestId: String, capture: Boolean) {
         val x = cmd.get("x")?.asInt ?: 0
         val y = cmd.get("y")?.asInt ?: 0
         val service = serviceRef ?: run {
@@ -391,17 +437,32 @@ object RelayClient {
             withContext(Dispatchers.Main) {
                 service.executeDirectAction("LONG_PRESS", x, y, 0, 0, "")
             }
-            delay(800)
-            sendResponse(requestId, mapOf(
-                "type" to "long_press_done",
-                "x" to x, "y" to y,
-                "success" to true,
-                "deviceId" to getDeviceId()
-            ))
+
+            if (capture) {
+                val (b64, uiTree) = service.autoCapture()
+                sendResponse(requestId, mapOf(
+                    "type" to "long_press_done",
+                    "x" to x, "y" to y,
+                    "success" to true,
+                    "deviceId" to getDeviceId(),
+                    "base64" to (b64 ?: ""),
+                    "mimeType" to "image/jpeg",
+                    "uiTree" to (uiTree ?: "")
+                ))
+            } else {
+                delay(800)
+                sendResponse(requestId, mapOf(
+                    "type" to "long_press_done",
+                    "x" to x, "y" to y,
+                    "success" to true,
+                    "deviceId" to getDeviceId()
+                ))
+            }
+            mcpLastAction.value = "long_press($x,$y)"
         }
     }
 
-    private fun handleTypeText(cmd: JsonObject, requestId: String) {
+    private fun handleTypeText(cmd: JsonObject, requestId: String, capture: Boolean) {
         val x = cmd.get("x")?.asInt ?: 0
         val y = cmd.get("y")?.asInt ?: 0
         val text = cmd.get("text")?.asString ?: ""
@@ -414,17 +475,32 @@ object RelayClient {
             withContext(Dispatchers.Main) {
                 service.executeDirectAction("TYPE", x, y, 0, 0, text)
             }
-            delay(500)
-            sendResponse(requestId, mapOf(
-                "type" to "type_done",
-                "x" to x, "y" to y, "text" to text,
-                "success" to true,
-                "deviceId" to getDeviceId()
-            ))
+
+            if (capture) {
+                val (b64, uiTree) = service.autoCapture()
+                sendResponse(requestId, mapOf(
+                    "type" to "type_done",
+                    "x" to x, "y" to y, "text" to text,
+                    "success" to true,
+                    "deviceId" to getDeviceId(),
+                    "base64" to (b64 ?: ""),
+                    "mimeType" to "image/jpeg",
+                    "uiTree" to (uiTree ?: "")
+                ))
+            } else {
+                delay(500)
+                sendResponse(requestId, mapOf(
+                    "type" to "type_done",
+                    "x" to x, "y" to y, "text" to text,
+                    "success" to true,
+                    "deviceId" to getDeviceId()
+                ))
+            }
+            mcpLastAction.value = "type: ${text.take(20)}"
         }
     }
 
-    private fun handlePressBack(requestId: String) {
+    private fun handlePressBack(requestId: String, capture: Boolean) {
         val service = serviceRef ?: run {
             sendResponse(requestId, mapOf("type" to "error", "message" to "Service not available"))
             return
@@ -434,16 +510,30 @@ object RelayClient {
             withContext(Dispatchers.Main) {
                 service.executeDirectAction("PRESS_BACK", 0, 0, 0, 0, "")
             }
-            delay(300)
-            sendResponse(requestId, mapOf(
-                "type" to "press_back_done",
-                "success" to true,
-                "deviceId" to getDeviceId()
-            ))
+
+            if (capture) {
+                val (b64, uiTree) = service.autoCapture()
+                sendResponse(requestId, mapOf(
+                    "type" to "press_back_done",
+                    "success" to true,
+                    "deviceId" to getDeviceId(),
+                    "base64" to (b64 ?: ""),
+                    "mimeType" to "image/jpeg",
+                    "uiTree" to (uiTree ?: "")
+                ))
+            } else {
+                delay(300)
+                sendResponse(requestId, mapOf(
+                    "type" to "press_back_done",
+                    "success" to true,
+                    "deviceId" to getDeviceId()
+                ))
+            }
+            mcpLastAction.value = "press_back"
         }
     }
 
-    private fun handlePressHome(requestId: String) {
+    private fun handlePressHome(requestId: String, capture: Boolean) {
         val service = serviceRef ?: run {
             sendResponse(requestId, mapOf("type" to "error", "message" to "Service not available"))
             return
@@ -453,16 +543,30 @@ object RelayClient {
             withContext(Dispatchers.Main) {
                 service.executeDirectAction("PRESS_HOME", 0, 0, 0, 0, "")
             }
-            delay(300)
-            sendResponse(requestId, mapOf(
-                "type" to "press_home_done",
-                "success" to true,
-                "deviceId" to getDeviceId()
-            ))
+
+            if (capture) {
+                val (b64, uiTree) = service.autoCapture()
+                sendResponse(requestId, mapOf(
+                    "type" to "press_home_done",
+                    "success" to true,
+                    "deviceId" to getDeviceId(),
+                    "base64" to (b64 ?: ""),
+                    "mimeType" to "image/jpeg",
+                    "uiTree" to (uiTree ?: "")
+                ))
+            } else {
+                delay(300)
+                sendResponse(requestId, mapOf(
+                    "type" to "press_home_done",
+                    "success" to true,
+                    "deviceId" to getDeviceId()
+                ))
+            }
+            mcpLastAction.value = "press_home"
         }
     }
 
-    private fun handlePressRecents(requestId: String) {
+    private fun handlePressRecents(requestId: String, capture: Boolean) {
         val service = serviceRef ?: run {
             sendResponse(requestId, mapOf("type" to "error", "message" to "Service not available"))
             return
@@ -472,16 +576,30 @@ object RelayClient {
             withContext(Dispatchers.Main) {
                 service.executeDirectAction("PRESS_RECENTS", 0, 0, 0, 0, "")
             }
-            delay(300)
-            sendResponse(requestId, mapOf(
-                "type" to "press_recents_done",
-                "success" to true,
-                "deviceId" to getDeviceId()
-            ))
+
+            if (capture) {
+                val (b64, uiTree) = service.autoCapture()
+                sendResponse(requestId, mapOf(
+                    "type" to "press_recents_done",
+                    "success" to true,
+                    "deviceId" to getDeviceId(),
+                    "base64" to (b64 ?: ""),
+                    "mimeType" to "image/jpeg",
+                    "uiTree" to (uiTree ?: "")
+                ))
+            } else {
+                delay(300)
+                sendResponse(requestId, mapOf(
+                    "type" to "press_recents_done",
+                    "success" to true,
+                    "deviceId" to getDeviceId()
+                ))
+            }
+            mcpLastAction.value = "press_recents"
         }
     }
 
-    private fun handleOpenApp(cmd: JsonObject, requestId: String) {
+    private fun handleOpenApp(cmd: JsonObject, requestId: String, capture: Boolean) {
         val app = cmd.get("app")?.asString ?: ""
         val service = serviceRef ?: run {
             sendResponse(requestId, mapOf("type" to "error", "message" to "Service not available"))
@@ -492,17 +610,34 @@ object RelayClient {
             withContext(Dispatchers.Main) {
                 service.executeDirectAction("OPEN_APP", 0, 0, 0, 0, app)
             }
-            delay(2000) // Wait for app to open
-            sendResponse(requestId, mapOf(
-                "type" to "open_app_done",
-                "app" to app,
-                "success" to true,
-                "deviceId" to getDeviceId()
-            ))
+
+            if (capture) {
+                // Wait longer for app to open
+                delay(2000)
+                val (b64, uiTree) = service.autoCapture()
+                sendResponse(requestId, mapOf(
+                    "type" to "open_app_done",
+                    "app" to app,
+                    "success" to true,
+                    "deviceId" to getDeviceId(),
+                    "base64" to (b64 ?: ""),
+                    "mimeType" to "image/jpeg",
+                    "uiTree" to (uiTree ?: "")
+                ))
+            } else {
+                delay(2000)
+                sendResponse(requestId, mapOf(
+                    "type" to "open_app_done",
+                    "app" to app,
+                    "success" to true,
+                    "deviceId" to getDeviceId()
+                ))
+            }
+            mcpLastAction.value = "open_app: $app"
         }
     }
 
-    private fun handleOpenUrl(cmd: JsonObject, requestId: String) {
+    private fun handleOpenUrl(cmd: JsonObject, requestId: String, capture: Boolean) {
         val url = cmd.get("url")?.asString ?: ""
         val service = serviceRef ?: run {
             sendResponse(requestId, mapOf("type" to "error", "message" to "Service not available"))
@@ -511,19 +646,145 @@ object RelayClient {
 
         scope.launch {
             withContext(Dispatchers.Main) {
-                val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))
-                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                service.startActivity(intent)
+                // Fix: Explicitly target Chrome to avoid opening wrong app
+                try {
+                    val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    intent.setPackage("com.android.chrome")
+                    service.startActivity(intent)
+                } catch (e: Exception) {
+                    // Fallback: try without Chrome package
+                    try {
+                        val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))
+                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        service.startActivity(intent)
+                    } catch (e2: Exception) {
+                        Log.e(TAG, "Failed to open URL: ${e2.message}")
+                    }
+                }
             }
-            delay(3000) // Wait for browser to load
-            sendResponse(requestId, mapOf(
-                "type" to "open_url_done",
-                "url" to url,
-                "success" to true,
-                "deviceId" to getDeviceId()
-            ))
+
+            delay(3000) // Wait for page to load
+
+            if (capture) {
+                val (b64, uiTree) = service.autoCapture()
+                sendResponse(requestId, mapOf(
+                    "type" to "open_url_done",
+                    "url" to url,
+                    "success" to true,
+                    "deviceId" to getDeviceId(),
+                    "base64" to (b64 ?: ""),
+                    "mimeType" to "image/jpeg",
+                    "uiTree" to (uiTree ?: "")
+                ))
+            } else {
+                sendResponse(requestId, mapOf(
+                    "type" to "open_url_done",
+                    "url" to url,
+                    "success" to true,
+                    "deviceId" to getDeviceId()
+                ))
+            }
+            mcpLastAction.value = "open_url: ${url.take(30)}"
         }
     }
+
+    // ══════════════════════════════════════════════════════════════
+    //  SEQUENCE COMMAND — Execute batch of actions, auto-capture at end
+    // ══════════════════════════════════════════════════════════════
+
+    private fun handleSequence(cmd: JsonObject, requestId: String) {
+        val service = serviceRef ?: run {
+            sendResponse(requestId, mapOf("type" to "error", "message" to "Service not available"))
+            return
+        }
+
+        val actionsArray = cmd.getAsJsonArray("actions") ?: run {
+            sendResponse(requestId, mapOf("type" to "error", "message" to "Missing actions array"))
+            return
+        }
+
+        val actions = mutableListOf<SequenceAction>()
+        for (element in actionsArray) {
+            try {
+                val obj = element.asJsonObject
+                actions.add(SequenceAction(
+                    action = obj.get("action")?.asString ?: "TAP",
+                    x = obj.get("x")?.asInt ?: 0,
+                    y = obj.get("y")?.asInt ?: 0,
+                    x2 = obj.get("x2")?.asInt ?: 0,
+                    y2 = obj.get("y2")?.asInt ?: 0,
+                    text = obj.get("text")?.asString ?: "",
+                    app = obj.get("app")?.asString ?: "",
+                    delay = obj.get("delay")?.asLong ?: 0L,
+                    duration = obj.get("duration")?.asLong ?: 0L
+                ))
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to parse sequence action: ${e.message}")
+            }
+        }
+
+        if (actions.isEmpty()) {
+            sendResponse(requestId, mapOf("type" to "error", "message" to "Empty actions array"))
+            return
+        }
+
+        mcpLastAction.value = "sequence: ${actions.size} actions"
+
+        scope.launch {
+            val (b64, uiTree) = service.executeSequence(actions)
+            val actionSummary = actions.map { it.action }.joinToString(" → ")
+
+            sendResponse(requestId, mapOf(
+                "type" to "sequence_done",
+                "actionCount" to actions.size,
+                "actions" to actionSummary,
+                "success" to true,
+                "deviceId" to getDeviceId(),
+                "base64" to (b64 ?: ""),
+                "mimeType" to "image/jpeg",
+                "uiTree" to (uiTree ?: "")
+            ))
+            mcpLastAction.value = "sequence_done"
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    //  CHROME URL MACRO — Open URL in Chrome, type it, load page
+    //  Executes entirely on phone with zero round-trips
+    // ══════════════════════════════════════════════════════════════
+
+    private fun handleOpenChromeUrl(cmd: JsonObject, requestId: String) {
+        val url = cmd.get("url")?.asString ?: ""
+        if (url.isBlank()) {
+            sendResponse(requestId, mapOf("type" to "error", "message" to "URL is required"))
+            return
+        }
+        val service = serviceRef ?: run {
+            sendResponse(requestId, mapOf("type" to "error", "message" to "Service not available"))
+            return
+        }
+
+        mcpLastAction.value = "open_chrome_url: ${url.take(30)}"
+
+        scope.launch {
+            val (b64, uiTree) = service.openChromeUrl(url)
+            sendResponse(requestId, mapOf(
+                "type" to "chrome_url_done",
+                "url" to url,
+                "success" to true,
+                "deviceId" to getDeviceId(),
+                "base64" to (b64 ?: ""),
+                "mimeType" to "image/jpeg",
+                "uiTree" to (uiTree ?: "")
+            ))
+            mcpLastAction.value = "chrome_url_done"
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    //  LOOK / SCREENSHOT / UI TREE
+    // ══════════════════════════════════════════════════════════════
 
     private fun handleUiTree(requestId: String) {
         val service = serviceRef ?: run {
@@ -567,8 +828,37 @@ object RelayClient {
         }
     }
 
+    private fun handleScreenshot(requestId: String) {
+        scope.launch {
+            val service = serviceRef ?: run {
+                sendResponse(requestId, mapOf("type" to "error", "message" to "Service not available"))
+                return@launch
+            }
+
+            val b64 = withContext(Dispatchers.Main) {
+                try { service.captureScreenPublic() }
+                catch (e: Exception) { Log.e(TAG, "Screenshot failed: ${e.message}"); null }
+            }
+
+            if (b64 != null) {
+                sendResponse(requestId, mapOf(
+                    "type" to "screenshot_response",
+                    "base64" to b64,
+                    "mimeType" to "image/jpeg",
+                    "deviceId" to getDeviceId()
+                ))
+            } else {
+                sendResponse(requestId, mapOf(
+                    "type" to "error",
+                    "message" to "Screenshot capture failed. Is accessibility service active?",
+                    "deviceId" to getDeviceId()
+                ))
+            }
+        }
+    }
+
     // ══════════════════════════════════════════════════════════════
-    //  LEGACY COMMAND HANDLERS (uses local Gemini agent)
+    //  LEGACY COMMAND HANDLERS
     // ══════════════════════════════════════════════════════════════
 
     private fun handleExecute(msg: JsonObject, requestId: String) {
@@ -638,35 +928,6 @@ object RelayClient {
         ))
     }
 
-    private fun handleScreenshot(requestId: String) {
-        scope.launch {
-            val service = serviceRef ?: run {
-                sendResponse(requestId, mapOf("type" to "error", "message" to "Service not available"))
-                return@launch
-            }
-
-            val b64 = withContext(Dispatchers.Main) {
-                try { service.captureScreenPublic() }
-                catch (e: Exception) { Log.e(TAG, "Screenshot failed: ${e.message}"); null }
-            }
-
-            if (b64 != null) {
-                sendResponse(requestId, mapOf(
-                    "type" to "screenshot_response",
-                    "base64" to b64,
-                    "mimeType" to "image/jpeg",
-                    "deviceId" to getDeviceId()
-                ))
-            } else {
-                sendResponse(requestId, mapOf(
-                    "type" to "error",
-                    "message" to "Screenshot capture failed. Is accessibility service active?",
-                    "deviceId" to getDeviceId()
-                ))
-            }
-        }
-    }
-
     private fun handleListApps(requestId: String) {
         val service = serviceRef ?: run {
             sendResponse(requestId, mapOf("type" to "error", "message" to "Service not available"))
@@ -687,7 +948,7 @@ object RelayClient {
         ))
     }
 
-    // ─── Send Response (HTTP POST) ───
+    // ─── Send Response ───
     private fun sendResponse(requestId: String, data: Map<String, Any?>) {
         scope.launch {
             try {
@@ -709,7 +970,7 @@ object RelayClient {
         }
     }
 
-    // ─── Push Status Update (public, called from JarvisService) ───
+    // ─── Push Status Update ───
     fun pushStatusUpdate(status: String, step: Int, action: String) {
         if (!isConnected.value) return
         scope.launch {

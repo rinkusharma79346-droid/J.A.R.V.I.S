@@ -1,13 +1,45 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- Background -->
     <color name="bg_dark">#050510</color>
+    <color name="bg_darker">#03030A</color>
+    <color name="bg_mid">#0A0A2E</color>
+    <color name="bg_black">#050510</color>
+
+    <!-- Primary accent -->
     <color name="cyan_primary">#00E5FF</color>
     <color name="cyan_accent">#00E5FF</color>
+    <color name="cyan_dark">#00B8D4</color>
+    <color name="cyan_dim">#6600E5FF</color>
+    <color name="cyan_glow">#4D00E5FF</color>
+    <color name="cyan_subtle">#1A00E5FF</color>
+
+    <!-- Glass -->
     <color name="glass_white">#1AFFFFFF</color>
+    <color name="glass_solid">#0DFFFFFF</color>
+    <color name="glass_stroke">#1AFFFFFF</color>
+    <color name="glass_input">#0AFFFFFF</color>
+    <color name="glass_hover">#1AFFFFFF</color>
+
+    <!-- Text -->
     <color name="white">#FFFFFF</color>
+    <color name="text_primary">#FFFFFF</color>
+    <color name="text_secondary">#99FFFFFF</color>
+    <color name="text_tertiary">#66FFFFFF</color>
+    <color name="text_dim">#4DFFFFFF</color>
+    <color name="text_faint">#33FFFFFF</color>
+
+    <!-- Status -->
     <color name="gray">#888888</color>
-    <color name="bg_black">#050510</color>
     <color name="red_accent">#FF3D3D</color>
     <color name="green_accent">#00E676</color>
     <color name="amber_accent">#FFB300</color>
+
+    <!-- HUD overlay -->
+    <color name="hud_bg">#B3050510</color>
+    <color name="hud_stroke">#1AFFFFFF</color>
+
+    <!-- Gradient accents -->
+    <color name="gradient_start">#00E5FF</color>
+    <color name="gradient_end">#00B8D4</color>
 </resources>

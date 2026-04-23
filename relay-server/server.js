@@ -1,12 +1,13 @@
 /**
- * JARVIS MCP Relay Server v2.1 — HTTP Long-Polling
+ * JARVIS MCP Relay Server v3.0 — HTTP Long-Polling
  *
- * Bulletproof on Render free tier:
- *   - No WebSockets (avoids Render WS proxy issues)
- *   - HTTP long-polling with 25s timeout (stays within Render 30s limit)
- *   - Graceful cold-start handling with /api/warmup
- *   - In-memory state with automatic cleanup
- *   - CORS fully open for any client
+ * Improvements over v2.1:
+ *   - Better connection stability (heartbeat tracking, faster reconnect)
+ *   - Support for sequence commands and Chrome URL macro
+ *   - Reduced response polling interval (200ms → faster command delivery)
+ *   - Better cleanup of stale data
+ *   - Response size limit increased for auto-capture screenshots
+ *   - Device reconnection support without duplicate registration
  *
  * Endpoints:
  *   POST /api/register     — Device registers itself
@@ -16,7 +17,7 @@
  *   POST /api/command      — MCP client sends command to device
  *   GET  /api/devices      — MCP client lists connected devices
  *   GET  /api/health       — Health check
- *   GET  /api/warmup       — Force server awake (for cold-start prevention)
+ *   GET  /api/warmup       — Force server awake
  *   GET  /                 — Server info
  */
 
@@ -29,26 +30,26 @@ const PORT = process.env.PORT || 10000;
 
 // ─── Middleware ───
 app.use(cors());
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '20mb' })); // Increased for auto-capture screenshots
 
 // ─── In-Memory State ───
-const devices = new Map();       // deviceId → { info, lastSeen, pendingCommands[] }
+const devices = new Map();       // deviceId → { info, lastSeen, pendingCommands[], connected }
 const responses = new Map();     // requestId → { response, timestamp }
 const statusUpdates = new Map(); // deviceId → { status, step, action, timestamp }
 
-const POLL_TIMEOUT_MS = 25000;   // 25s long-poll (Render 30s limit)
-const CLEANUP_INTERVAL_MS = 60000; // Clean stale data every 60s
-const DEVICE_STALE_MS = 120000;  // Device considered stale after 2min
-const RESPONSE_TTL_MS = 300000;  // Responses kept for 5min
+const POLL_TIMEOUT_MS = 25000;     // 25s long-poll (Render 30s limit)
+const CLEANUP_INTERVAL_MS = 45000; // Clean stale data every 45s (more frequent)
+const DEVICE_STALE_MS = 90000;     // Device considered stale after 90s (was 2min)
+const RESPONSE_TTL_MS = 300000;    // Responses kept for 5min
+const COMMAND_TTL_MS = 120000;     // Commands expire after 2min
 
-// ─── Server uptime tracking ───
 const startTime = Date.now();
 
 // ─── Health Check ───
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
-    version: '2.1.0',
+    version: '3.0.0',
     protocol: 'HTTP Long-Polling',
     devices: devices.size,
     pendingResponses: responses.size,
@@ -58,7 +59,7 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// ─── Warmup endpoint (prevents Render cold start) ───
+// ─── Warmup endpoint ───
 app.get('/api/warmup', (req, res) => {
   res.json({
     status: 'warm',
@@ -76,15 +77,19 @@ app.post('/api/register', (req, res) => {
   }
 
   const existing = devices.get(deviceId);
+  const wasConnected = existing?.connected || false;
+
   devices.set(deviceId, {
     info: { model: model || 'Unknown', androidVersion: androidVersion || '?', sdkVersion: sdkVersion || '?' },
     lastSeen: Date.now(),
     pendingCommands: existing?.pendingCommands || [],
-    connected: true
+    connected: true,
+    registeredAt: existing?.registeredAt || Date.now(),
+    reconnectCount: (existing?.reconnectCount || 0) + (wasConnected ? 0 : 1)
   });
 
-  console.log(`[REGISTER] ${deviceId} — ${model} (Android ${androidVersion})`);
-  res.json({ ok: true, message: 'Registered', deviceId });
+  console.log(`[REGISTER] ${deviceId} — ${model} (Android ${androidVersion})${wasConnected ? ' (reconnect)' : ''}`);
+  res.json({ ok: true, message: 'Registered', deviceId, reconnectCount: devices.get(deviceId).reconnectCount });
 });
 
 // ─── Device Long-Poll for Commands ───
@@ -94,18 +99,19 @@ app.get('/api/poll', async (req, res) => {
     return res.status(400).json({ error: 'deviceId required' });
   }
 
-  // Update last seen
+  // Update last seen & ensure registered
   const device = devices.get(deviceId);
   if (device) {
     device.lastSeen = Date.now();
     device.connected = true;
   } else {
-    // Auto-register if not found
     devices.set(deviceId, {
       info: { model: 'Unknown', androidVersion: '?', sdkVersion: '?' },
       lastSeen: Date.now(),
       pendingCommands: [],
-      connected: true
+      connected: true,
+      registeredAt: Date.now(),
+      reconnectCount: 0
     });
   }
 
@@ -114,7 +120,6 @@ app.get('/api/poll', async (req, res) => {
   // Check for pending commands immediately
   if (dev.pendingCommands.length > 0) {
     const commands = [];
-    // Send ALL pending commands (not just one)
     while (dev.pendingCommands.length > 0) {
       commands.push(dev.pendingCommands.shift());
     }
@@ -122,7 +127,6 @@ app.get('/api/poll', async (req, res) => {
   }
 
   // Long-poll: wait up to POLL_TIMEOUT_MS for a command
-  const pollStart = Date.now();
   let intervalId = null;
   let timeoutId = null;
   let responded = false;
@@ -135,7 +139,7 @@ app.get('/api/poll', async (req, res) => {
     res.json({ commands, serverTime: Date.now() });
   };
 
-  // Check every 500ms for pending commands
+  // Check every 300ms for pending commands (faster than 500ms)
   intervalId = setInterval(() => {
     if (dev.pendingCommands.length > 0) {
       const commands = [];
@@ -144,14 +148,12 @@ app.get('/api/poll', async (req, res) => {
       }
       sendResponse(commands);
     }
-  }, 500);
+  }, 300);
 
-  // Timeout after POLL_TIMEOUT_MS
   timeoutId = setTimeout(() => {
-    sendResponse([]); // Empty response = no commands
+    sendResponse([]);
   }, POLL_TIMEOUT_MS);
 
-  // Handle client disconnect
   req.on('close', () => {
     if (intervalId) clearInterval(intervalId);
     if (timeoutId) clearTimeout(timeoutId);
@@ -168,14 +170,12 @@ app.post('/api/status', (req, res) => {
     return res.status(400).json({ error: 'deviceId required' });
   }
 
-  // Update device last seen
   const device = devices.get(deviceId);
   if (device) {
     device.lastSeen = Date.now();
     device.connected = true;
   }
 
-  // Store latest status
   statusUpdates.set(deviceId, {
     status: status || '',
     step: step || 0,
@@ -194,13 +194,11 @@ app.post('/api/response', (req, res) => {
     return res.status(400).json({ error: 'requestId required' });
   }
 
-  // Update device last seen
   const device = devices.get(deviceId);
   if (device) {
     device.lastSeen = Date.now();
   }
 
-  // Store response
   responses.set(requestId, {
     response: { type, deviceId, ...rest },
     timestamp: Date.now()
@@ -219,7 +217,6 @@ app.post('/api/command', (req, res) => {
 
   const requestId = rest.requestId || crypto.randomUUID();
 
-  // If deviceId specified, send to that device only
   if (deviceId) {
     const device = devices.get(deviceId);
     if (!device) {
@@ -238,7 +235,7 @@ app.post('/api/command', (req, res) => {
     return res.json({ ok: true, requestId, deviceId });
   }
 
-  // If no deviceId, send to first available device
+  // No deviceId: send to first available device
   for (const [id, dev] of devices) {
     if (dev.connected && Date.now() - dev.lastSeen < DEVICE_STALE_MS) {
       dev.pendingCommands.push({
@@ -269,7 +266,6 @@ app.get('/api/response/:requestId', async (req, res) => {
   }
 
   // Long-poll for response (25s max)
-  const pollStart = Date.now();
   let intervalId = null;
   let timeoutId = null;
   let responded = false;
@@ -282,17 +278,14 @@ app.get('/api/response/:requestId', async (req, res) => {
     res.json(data);
   };
 
+  // Check every 200ms (faster than 500ms for quicker response delivery)
   intervalId = setInterval(() => {
     const resp = responses.get(requestId);
     if (resp) {
       responses.delete(requestId);
       sendResponse(resp.response);
     }
-
-    if (Date.now() - pollStart >= POLL_TIMEOUT_MS) {
-      sendResponse({ type: 'timeout', message: 'No response from device in time' });
-    }
-  }, 500);
+  }, 200);
 
   timeoutId = setTimeout(() => {
     sendResponse({ type: 'timeout', message: 'No response from device in time' });
@@ -346,13 +339,12 @@ app.get('/api/device/:deviceId/status', (req, res) => {
 setInterval(() => {
   const now = Date.now();
 
-  // Mark stale devices
   for (const [id, dev] of devices) {
     if (now - dev.lastSeen > DEVICE_STALE_MS) {
       dev.connected = false;
     }
-    // Clean old pending commands (> 5min)
-    dev.pendingCommands = dev.pendingCommands.filter(c => now - c.timestamp < 300000);
+    // Clean old pending commands (> 2min)
+    dev.pendingCommands = dev.pendingCommands.filter(c => now - c.timestamp < COMMAND_TTL_MS);
   }
 
   // Remove old responses
@@ -374,8 +366,9 @@ setInterval(() => {
 app.get('/', (req, res) => {
   res.json({
     name: 'JARVIS MCP Relay Server',
-    version: '2.1.0',
+    version: '3.0.0',
     protocol: 'HTTP Long-Polling',
+    features: ['auto-capture', 'sequence-commands', 'chrome-url-macro'],
     endpoints: {
       'POST /api/register': 'Device registration',
       'GET  /api/poll': 'Device long-poll for commands',
@@ -386,7 +379,7 @@ app.get('/', (req, res) => {
       'GET  /api/devices': 'List connected devices',
       'GET  /api/device/:deviceId/status': 'Get device status',
       'GET  /api/health': 'Health check',
-      'GET  /api/warmup': 'Keep server awake / prevent cold start'
+      'GET  /api/warmup': 'Keep server awake'
     }
   });
 });
@@ -394,7 +387,8 @@ app.get('/', (req, res) => {
 // ─── Start Server ───
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`╔══════════════════════════════════════════╗`);
-  console.log(`║   JARVIS MCP Relay Server v2.1           ║`);
+  console.log(`║   JARVIS MCP Relay Server v3.0           ║`);
+  console.log(`║   Fast Execution Architecture            ║`);
   console.log(`║   HTTP Long-Polling — Bulletproof Mode   ║`);
   console.log(`║   Port: ${PORT}                            ║`);
   console.log(`╚══════════════════════════════════════════╝`);
