@@ -192,8 +192,7 @@ object RelayClient {
     }
 
     private fun handleStatus(requestId: String) {
-        val config = prefs?.let { SettingsManager.getConfig(it.applicationContext ?: return) }
-            ?: ProviderConfig()
+        val config = serviceRef?.let { SettingsManager.getConfig(it) } ?: ProviderConfig()
 
         sendResponse(requestId, mapOf(
             "type" to "status_response",
