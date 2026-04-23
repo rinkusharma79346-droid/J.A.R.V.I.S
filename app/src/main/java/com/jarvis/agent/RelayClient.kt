@@ -158,7 +158,7 @@ object RelayClient {
 
     // ─── Poll Loop ───
     private suspend fun pollLoop() {
-        while (isActive && isEnabled()) {
+        while (currentCoroutineContext().isActive && isEnabled()) {
             try {
                 val commands = pollForCommands()
                 consecutiveErrors = 0
@@ -224,7 +224,7 @@ object RelayClient {
     private fun startStatusPush() {
         statusPushJob?.cancel()
         statusPushJob = scope.launch {
-            while (isActive && isEnabled()) {
+            while (currentCoroutineContext().isActive && isEnabled()) {
                 // Only push if there's meaningful status
                 if (JarvisService.isRunning.value || JarvisService.status.value != "Idle") {
                     pushStatusUpdate(
