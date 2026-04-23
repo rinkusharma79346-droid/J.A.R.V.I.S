@@ -1,60 +1,69 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:padding="24dp"
-    android:background="@color/bg_black">
-
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="J.A.R.V.I.S."
-        android:textColor="@color/cyan_accent"
-        android:textSize="32sp"
-        android:textStyle="bold"
-        android:layout_gravity="center"
-        android:layout_marginBottom="24dp" />
+    android:fillViewport="true"
+    android:background="@drawable/bg_gradient"
+    tools:context=".MainActivity">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="@drawable/glass_card"
         android:orientation="vertical"
-        android:padding="16dp">
-        <TextView android:id="@+id/tvStatus" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Service: Disconnected" android:textColor="@color/white" />
-        <TextView android:id="@+id/tvStep" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Step: 0/50" android:textColor="@color/gray" />
-        <TextView android:id="@+id/tvAction" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Action: Idle" android:textColor="@color/cyan_accent" android:textStyle="bold" android:layout_marginTop="8dp"/>
+        android:paddingHorizontal="20dp"
+        android:paddingTop="48dp"
+        android:paddingBottom="32dp">
+
+        <!-- Top Bar -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="16dp">
+
+            <TextView android:id="@+id/tvApiKeyStatus" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="● API Key" android:textColor="@color/green_accent" android:textSize="11sp" android:fontFamily="monospace" />
+            <TextView android:id="@+id/tvRelayStatus" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="○ Relay" android:textColor="@color/gray" android:textSize="11sp" android:fontFamily="monospace" android:layout_marginEnd="8dp" />
+            <TextView android:id="@+id/tvApiProvider" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="API: Gemini / gemini-2.0-flash" android:textColor="#66FFFFFF" android:textSize="10sp" android:fontFamily="monospace" android:layout_marginEnd="8dp" />
+            <ImageButton android:id="@+id/btnSettings" android:layout_width="36dp" android:layout_height="36dp" android:src="@android:drawable/ic_menu_preferences" android:background="@drawable/btn_glass" android:contentDescription="Settings" android:padding="8dp" android:scaleType="fitCenter" app:tint="@color/cyan_primary" />
+        </LinearLayout>
+
+        <!-- JARVIS Title with Glow -->
+        <FrameLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_gravity="center_horizontal" android:layout_marginBottom="8dp">
+            <ImageView android:id="@+id/ivGlow" android:layout_width="280dp" android:layout_height="100dp" android:layout_gravity="center" android:src="@drawable/glow_circle" android:scaleType="fitCenter" android:alpha="0.5" />
+            <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_gravity="center" android:orientation="vertical" android:gravity="center">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="J.A.R.V.I.S." android:textColor="@color/cyan_primary" android:textSize="36sp" android:fontFamily="monospace" android:textStyle="bold" android:letterSpacing="0.15" android:shadowColor="#4D00E5FF" android:shadowRadius="20" />
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="AUTONOMOUS NEURAL ENGINE" android:textColor="#4D00E5FF" android:textSize="9sp" android:fontFamily="monospace" android:letterSpacing="0.3" android:layout_marginTop="-2dp" />
+            </LinearLayout>
+        </FrameLayout>
+
+        <!-- Status Card -->
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:background="@drawable/glass_card" android:orientation="vertical" android:padding="20dp" android:layout_marginBottom="16dp">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="SYSTEM STATUS" android:textColor="#4DFFFFFF" android:textSize="9sp" android:fontFamily="monospace" android:letterSpacing="0.2" android:layout_marginBottom="12dp" />
+            <TextView android:id="@+id/tvStatus" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Ready — Service Disconnected" android:textColor="@color/white" android:textSize="14sp" android:fontFamily="monospace" android:layout_marginBottom="8dp" />
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
+                <TextView android:id="@+id/tvStep" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="IDLE" android:textColor="@color/cyan_primary" android:textSize="13sp" android:fontFamily="monospace" android:textStyle="bold" />
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="50 max" android:textColor="#4DFFFFFF" android:textSize="10sp" android:fontFamily="monospace" />
+            </LinearLayout>
+            <TextView android:id="@+id/tvAction" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="—" android:textColor="@color/cyan_primary" android:textSize="12sp" android:fontFamily="monospace" android:layout_marginTop="8dp" android:maxLines="2" android:ellipsize="end" />
+        </LinearLayout>
+
+        <!-- Task Input -->
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:background="@drawable/glass_card" android:orientation="vertical" android:padding="20dp" android:layout_marginBottom="16dp">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="OBJECTIVE" android:textColor="#4DFFFFFF" android:textSize="9sp" android:fontFamily="monospace" android:letterSpacing="0.2" android:layout_marginBottom="10dp" />
+            <EditText android:id="@+id/etTask" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="56dp" android:hint="Enter task for JARVIS..." android:textColorHint="#4DFFFFFF" android:textColor="@color/white" android:background="@drawable/edittext_glass" android:padding="14dp" android:textSize="14sp" android:fontFamily="monospace" android:inputType="textMultiLine" android:maxLines="3" android:gravity="top|start" android:importantForAutofill="no" />
+        </LinearLayout>
+
+        <!-- Action Buttons -->
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:layout_marginBottom="12dp">
+            <Button android:id="@+id/btnExecute" android:layout_width="0dp" android:layout_height="52dp" android:layout_weight="1" android:text="EXECUTE" android:background="@drawable/btn_cyan" android:textColor="#050510" android:textStyle="bold" android:textSize="13sp" android:fontFamily="monospace" android:letterSpacing="0.15" android:layout_marginEnd="8dp" />
+            <Button android:id="@+id/btnStop" android:layout_width="0dp" android:layout_height="52dp" android:layout_weight="1" android:text="KILL" android:background="@drawable/btn_red" android:textColor="@color/white" android:textStyle="bold" android:textSize="13sp" android:fontFamily="monospace" android:letterSpacing="0.15" android:alpha="0.4" android:enabled="false" android:layout_marginStart="8dp" />
+        </LinearLayout>
+
+        <Button android:id="@+id/btnPerms" android:layout_width="match_parent" android:layout_height="44dp" android:text="GRANT PERMISSIONS" android:background="@drawable/btn_glass" android:textColor="#99FFFFFF" android:textSize="11sp" android:fontFamily="monospace" android:letterSpacing="0.1" />
+
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Grant Accessibility + Overlay permissions for the agent to work." android:textColor="#33FFFFFF" android:textSize="10sp" android:fontFamily="monospace" android:gravity="center" android:layout_marginTop="20dp" />
     </LinearLayout>
-
-    <EditText
-        android:id="@+id/etTask"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:hint="Enter objective..."
-        android:textColorHint="@color/gray"
-        android:textColor="@color/white"
-        android:background="@drawable/glass_card"
-        android:padding="16dp"
-        android:layout_marginTop="24dp" />
-
-    <Button
-        android:id="@+id/btnExecute"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="EXECUTE"
-        android:backgroundTint="@color/cyan_accent"
-        android:textColor="@color/bg_black"
-        android:textStyle="bold"
-        android:layout_marginTop="16dp" />
-        
-    <Button
-        android:id="@+id/btnPerms"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="GRANT PERMISSIONS"
-        android:backgroundTint="@color/glass_white"
-        android:textColor="@color/white"
-        android:layout_marginTop="8dp" />
-
-</LinearLayout>
+</ScrollView>

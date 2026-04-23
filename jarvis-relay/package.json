@@ -1,0 +1,14 @@
+{
+  "name": "jarvis-relay",
+  "version": "1.0.0",
+  "description": "WebSocket relay server for JARVIS MCP — bridges MCP clients and Android devices",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0",
+    "uuid": "^9.0.0"
+  }
+}
