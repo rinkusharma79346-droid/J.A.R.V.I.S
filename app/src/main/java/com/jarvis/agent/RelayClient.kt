@@ -9,21 +9,27 @@ import com.google.gson.JsonObject
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import okhttp3.*
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
+import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 /**
- * WebSocket client that connects the JARVIS Android app to the MCP relay server.
- * This enables MCP clients (Claude Desktop, Cursor, etc.) to control the agent remotely.
+ * HTTP Long-Polling relay client for JARVIS MCP.
  *
- * Protocol:
- *   Device → Relay:  { type: "register_device", deviceId, model, androidVersion }
- *   Device → Relay:  { type: "status_update", status, step, action, deviceId }
- *   Relay → Device:  { type: "execute", task, requestId }
- *   Relay → Device:  { type: "status", requestId }
- *   Relay → Device:  { type: "kill", requestId }
- *   Relay → Device:  { type: "screenshot", requestId }
- *   Relay → Device:  { type: "list_apps", requestId }
- *   Device → Relay:  { type: "<response>", requestId, ... }
+ * Bulletproof on Render free tier — no WebSockets, no connection drops.
+ * Uses simple HTTP requests:
+ *   - POST /api/register   → register device
+ *   - GET  /api/poll       → long-poll for commands (25s timeout)
+ *   - POST /api/status     → push status updates
+ *   - POST /api/response   → push command responses
+ *
+ * The poll loop runs continuously:
+ *   1. GET /api/poll?deviceId=xxx (blocks up to 25s waiting for commands)
+ *   2. If commands arrive, handle them
+ *   3. Immediately poll again
+ *   4. If poll times out (empty), immediately poll again
+ *   5. If poll fails, wait 3s then retry (exponential backoff up to 60s)
  */
 object RelayClient {
 
@@ -31,27 +37,27 @@ object RelayClient {
     private const val PREF_RELAY_URL = "relay_url"
     private const val PREF_RELAY_ENABLED = "relay_enabled"
     private const val DEFAULT_RELAY_URL = "https://j-a-r-v-i-s-ktlh.onrender.com"
-    private const val WS_PATH = "/ws"           // WebSocket endpoint on relay
-    private const val RECONNECT_BASE_MS = 3000L  // Initial reconnect delay
-    private const val RECONNECT_MAX_MS = 60000L  // Max reconnect delay
-    private const val HEARTBEAT_INTERVAL_MS = 25000L // Ping interval
+    private const val RECONNECT_BASE_MS = 3000L
+    private const val RECONNECT_MAX_MS = 60000L
+    private const val STATUS_PUSH_INTERVAL_MS = 3000L
 
     val isConnected = MutableStateFlow(false)
     val relayStatus = MutableStateFlow("Disconnected")
 
-    private var webSocket: WebSocket? = null
-    private var reconnectJob: Job? = null
-    private var heartbeatJob: Job? = null
-    private var reconnectAttempt = 0
     private val client = OkHttpClient.Builder()
-        .readTimeout(0, TimeUnit.MILLISECONDS)
-        .pingInterval(30, TimeUnit.SECONDS)
         .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)   // Must be > server's 25s poll timeout
+        .writeTimeout(15, TimeUnit.SECONDS)
         .build()
     private val gson = Gson()
     private var prefs: SharedPreferences? = null
     private var serviceRef: JarvisService? = null
+
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private var pollJob: Job? = null
+    private var statusPushJob: Job? = null
+    private var consecutiveErrors = 0
+    private var registered = false
 
     // ─── Config ───
     fun init(prefs: SharedPreferences, service: JarvisService) {
@@ -72,165 +78,182 @@ object RelayClient {
         if (enabled) connect() else disconnect()
     }
 
-    // ─── Connection ───
+    // ─── Connection Management ───
     fun connect() {
         val url = getRelayUrl()
         if (url.isBlank()) {
             relayStatus.value = "No relay URL configured"
-            Log.w(TAG, "No relay URL configured")
             return
         }
 
         disconnect()
-
-        // Build WebSocket URL: https://... → wss://.../ws
-        val wsUrl = buildWsUrl(url)
-        Log.i(TAG, "Connecting to relay: $wsUrl")
+        registered = false
+        consecutiveErrors = 0
+        isConnected.value = true
         relayStatus.value = "Connecting..."
 
-        val request = Request.Builder()
-            .url(wsUrl)
-            .header("X-Device-Id", getDeviceId())
-            .header("X-Device-Model", "${Build.MANUFACTURER} ${Build.MODEL}")
-            .header("X-Android-Version", Build.VERSION.RELEASE)
-            .build()
-
-        webSocket = client.newWebSocket(request, object : WebSocketListener() {
-            override fun onOpen(webSocket: WebSocket, response: Response) {
-                Log.i(TAG, "Connected to relay — code: ${response.code}")
-                reconnectAttempt = 0
-                isConnected.value = true
-                relayStatus.value = "Connected"
-
-                // Register as a device
-                val registerMsg = JsonObject().apply {
-                    addProperty("type", "register_device")
-                    addProperty("deviceId", getDeviceId())
-                    addProperty("model", "${Build.MANUFACTURER} ${Build.MODEL}")
-                    addProperty("androidVersion", Build.VERSION.RELEASE)
-                    addProperty("sdkVersion", Build.VERSION.SDK_INT)
-                }
-                webSocket.send(gson.toJson(registerMsg))
-
-                // Start heartbeat
-                startHeartbeat()
+        // Start the poll loop
+        pollJob = scope.launch {
+            // Register first
+            if (!registerDevice()) {
+                isConnected.value = false
+                relayStatus.value = "Registration failed — retrying..."
+                scheduleReconnect()
+                return@launch
             }
 
-            override fun onMessage(webSocket: WebSocket, text: String) {
-                try {
-                    handleMessage(text)
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to handle message: ${e.message}")
-                }
-            }
+            registered = true
+            isConnected.value = true
+            relayStatus.value = "Connected (HTTP polling)"
 
-            override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
-                Log.i(TAG, "WebSocket closing: $code $reason")
-                webSocket.close(1000, null)
-            }
+            // Start status push loop
+            startStatusPush()
 
-            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                Log.i(TAG, "WebSocket closed: $code $reason")
-                handleDisconnect()
-            }
-
-            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                Log.e(TAG, "WebSocket failure: ${t.message}")
-                handleDisconnect()
-            }
-        })
+            // Start poll loop
+            pollLoop()
+        }
     }
 
     fun disconnect() {
-        heartbeatJob?.cancel()
-        heartbeatJob = null
-        reconnectJob?.cancel()
-        reconnectJob = null
-        webSocket?.close(1000, "Disconnecting")
-        webSocket = null
+        pollJob?.cancel()
+        pollJob = null
+        statusPushJob?.cancel()
+        statusPushJob = null
         isConnected.value = false
         relayStatus.value = "Disconnected"
-        reconnectAttempt = 0
+        registered = false
+        consecutiveErrors = 0
     }
 
-    private fun buildWsUrl(baseUrl: String): String {
-        var wsUrl = baseUrl.trimEnd('/')
-        // Convert HTTP(S) to WS(S)
-        wsUrl = when {
-            wsUrl.startsWith("https://") -> wsUrl.replace("https://", "wss://")
-            wsUrl.startsWith("http://") -> wsUrl.replace("http://", "ws://")
-            wsUrl.startsWith("wss://") -> wsUrl
-            wsUrl.startsWith("ws://") -> wsUrl
-            else -> "wss://$wsUrl"
-        }
-        // Append WebSocket path if not already present
-        if (!wsUrl.endsWith("/ws") && !wsUrl.endsWith("/socket") && !wsUrl.contains("/ws?")) {
-            wsUrl = "$wsUrl$WS_PATH"
-        }
-        return wsUrl
-    }
+    // ─── Registration ───
+    private suspend fun registerDevice(): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val payload = mapOf(
+                "type" to "register_device",
+                "deviceId" to getDeviceId(),
+                "model" to "${Build.MANUFACTURER} ${Build.MODEL}",
+                "androidVersion" to Build.VERSION.RELEASE,
+                "sdkVersion" to Build.VERSION.SDK_INT
+            )
+            val body = gson.toJson(payload).toRequestBody("application/json".toMediaType())
+            val request = Request.Builder()
+                .url("${getRelayUrl()}/api/register")
+                .post(body)
+                .build()
 
-    private fun startHeartbeat() {
-        heartbeatJob?.cancel()
-        heartbeatJob = scope.launch {
-            while (isActive) {
-                delay(HEARTBEAT_INTERVAL_MS)
-                if (isConnected.value) {
-                    val ping = JsonObject().apply {
-                        addProperty("type", "ping")
-                        addProperty("deviceId", getDeviceId())
-                        addProperty("timestamp", System.currentTimeMillis())
-                    }
-                    webSocket?.send(gson.toJson(ping))
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    Log.i(TAG, "Registered with relay server")
+                    true
+                } else {
+                    Log.e(TAG, "Registration failed: ${response.code}")
+                    false
                 }
             }
-        }
-    }
-
-    private fun handleDisconnect() {
-        isConnected.value = false
-        heartbeatJob?.cancel()
-        heartbeatJob = null
-
-        if (isEnabled()) {
-            reconnectAttempt++
-            val delayMs = (RECONNECT_BASE_MS * (1L shl (reconnectAttempt.coerceAtMost(5) - 1)))
-                .coerceIn(RECONNECT_BASE_MS, RECONNECT_MAX_MS)
-            relayStatus.value = "Reconnecting in ${delayMs / 1000}s (attempt $reconnectAttempt)..."
-            Log.i(TAG, "Reconnecting in ${delayMs}ms (attempt $reconnectAttempt)")
-
-            reconnectJob?.cancel()
-            reconnectJob = scope.launch {
-                delay(delayMs)
-                if (isEnabled()) connect()
-            }
-        } else {
-            relayStatus.value = "Disconnected"
-        }
-    }
-
-    // ─── Message Handler ───
-    private fun handleMessage(text: String) {
-        val msg = try {
-            gson.fromJson(text, JsonObject::class.java)
         } catch (e: Exception) {
-            Log.w(TAG, "Non-JSON message: ${text.take(100)}")
-            return
+            Log.e(TAG, "Registration error: ${e.message}")
+            false
         }
-        val type = msg.get("type")?.asString ?: return
-        val requestId = msg.get("requestId")?.asString ?: ""
+    }
 
-        Log.d(TAG, "Received: $type (requestId: $requestId)")
+    // ─── Poll Loop ───
+    private suspend fun pollLoop() {
+        while (isActive && isEnabled()) {
+            try {
+                val commands = pollForCommands()
+                consecutiveErrors = 0
+
+                // Process each command
+                for (cmd in commands) {
+                    try {
+                        handleCommand(cmd)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error handling command: ${e.message}")
+                    }
+                }
+            } catch (e: CancellationException) {
+                break
+            } catch (e: Exception) {
+                consecutiveErrors++
+                val delayMs = (RECONNECT_BASE_MS * (1L shl (consecutiveErrors.coerceAtMost(5) - 1)))
+                    .coerceIn(RECONNECT_BASE_MS, RECONNECT_MAX_MS)
+                Log.w(TAG, "Poll failed ($consecutiveErrors errors), retrying in ${delayMs}ms: ${e.message}")
+                relayStatus.value = "Reconnecting in ${delayMs / 1000}s..."
+
+                if (consecutiveErrors >= 10) {
+                    // Try re-registering
+                    Log.w(TAG, "Too many errors, re-registering...")
+                    registered = registerDevice()
+                    if (registered) {
+                        relayStatus.value = "Connected (HTTP polling)"
+                    }
+                    consecutiveErrors = 0
+                }
+
+                delay(delayMs)
+            }
+        }
+
+        // If we exit the loop and it's still enabled, schedule reconnect
+        if (isEnabled()) {
+            isConnected.value = false
+            relayStatus.value = "Poll loop ended — reconnecting..."
+            scheduleReconnect()
+        }
+    }
+
+    private suspend fun pollForCommands(): List<JsonObject> = withContext(Dispatchers.IO) {
+        val url = "${getRelayUrl()}/api/poll?deviceId=${getDeviceId()}"
+        val request = Request.Builder().url(url).get().build()
+
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                throw IOException("Poll HTTP ${response.code}")
+            }
+            val body = response.body?.string() ?: throw IOException("Empty response")
+            val json = gson.fromJson(body, JsonObject::class.java)
+            val commands = json.getAsJsonArray("commands") ?: return@withContext emptyList()
+
+            commands.mapNotNull { element ->
+                try { element.asJsonObject } catch (e: Exception) { null }
+            }
+        }
+    }
+
+    // ─── Status Push Loop ───
+    private fun startStatusPush() {
+        statusPushJob?.cancel()
+        statusPushJob = scope.launch {
+            while (isActive && isEnabled()) {
+                // Only push if there's meaningful status
+                if (JarvisService.isRunning.value || JarvisService.status.value != "Idle") {
+                    pushStatusUpdate(
+                        JarvisService.status.value,
+                        JarvisService.currentStep.value,
+                        JarvisService.currentAction.value,
+                        JarvisService.isRunning.value
+                    )
+                }
+                delay(STATUS_PUSH_INTERVAL_MS)
+            }
+        }
+    }
+
+    // ─── Command Handler ───
+    private fun handleCommand(cmd: JsonObject) {
+        val type = cmd.get("type")?.asString ?: return
+        val requestId = cmd.get("requestId")?.asString ?: ""
+
+        Log.d(TAG, "Command received: $type (requestId: $requestId)")
 
         when (type) {
-            "execute" -> handleExecute(msg, requestId)
+            "execute" -> handleExecute(cmd, requestId)
             "status" -> handleStatus(requestId)
             "kill" -> handleKill(requestId)
             "screenshot" -> handleScreenshot(requestId)
             "list_apps" -> handleListApps(requestId)
-            "ping" -> sendResponse("", mapOf("type" to "pong", "deviceId" to getDeviceId()))
-            "pong" -> { /* heartbeat ack */ }
-            else -> Log.w(TAG, "Unknown message type: $type")
+            "ping" -> sendResponse(requestId, mapOf("type" to "pong", "deviceId" to getDeviceId()))
+            else -> Log.w(TAG, "Unknown command type: $type")
         }
     }
 
@@ -240,10 +263,9 @@ object RelayClient {
         val task = msg.get("task")?.asString ?: return
         Log.i(TAG, "Remote execute: $task")
 
-        // Start the task on the agent
         JarvisService.startTask(task)
 
-        // Send initial acknowledgment
+        // Send acknowledgment
         sendResponse(requestId, mapOf(
             "type" to "execute_ack",
             "status" to "started",
@@ -256,10 +278,9 @@ object RelayClient {
             var lastStatus = ""
             var lastAction = ""
             while (JarvisService.isRunning.value) {
-                delay(1500)
+                delay(2000)
                 val curStatus = JarvisService.status.value
                 val curAction = JarvisService.currentAction.value
-                // Only send if something changed
                 if (curStatus != lastStatus || curAction != lastAction) {
                     sendResponse(requestId, mapOf(
                         "type" to "status_update",
@@ -273,7 +294,7 @@ object RelayClient {
                 }
             }
 
-            // Task finished — send completion
+            // Task finished
             sendResponse(requestId, mapOf(
                 "type" to "execute_complete",
                 "status" to JarvisService.status.value,
@@ -316,12 +337,8 @@ object RelayClient {
             }
 
             val b64 = withContext(Dispatchers.Main) {
-                try {
-                    service.captureScreenPublic()
-                } catch (e: Exception) {
-                    Log.e(TAG, "Screenshot capture failed: ${e.message}")
-                    null
-                }
+                try { service.captureScreenPublic() }
+                catch (e: Exception) { Log.e(TAG, "Screenshot failed: ${e.message}"); null }
             }
 
             if (b64 != null) {
@@ -349,13 +366,9 @@ object RelayClient {
 
         val pm = service.packageManager
         val apps = pm.getInstalledApplications(0)
-            .filter { pm.getLaunchIntentForPackage(it.packageName) != null } // Only launchable apps
-            .map { appInfo ->
-                mapOf(
-                    "name" to pm.getApplicationLabel(appInfo).toString(),
-                    "packageName" to appInfo.packageName
-                )
-            }.sortedBy { it["name"].toString().lowercase() }
+            .filter { pm.getLaunchIntentForPackage(it.packageName) != null }
+            .map { mapOf("name" to pm.getApplicationLabel(it).toString(), "packageName" to it.packageName) }
+            .sortedBy { it["name"].toString().lowercase() }
 
         sendResponse(requestId, mapOf(
             "type" to "app_list",
@@ -365,37 +378,109 @@ object RelayClient {
         ))
     }
 
-    // ─── Send Response ───
+    // ─── Send Response (HTTP POST) ───
     private fun sendResponse(requestId: String, data: Map<String, Any?>) {
-        val ws = webSocket
-        if (ws == null || !isConnected.value) {
-            Log.w(TAG, "Cannot send response — not connected")
-            return
-        }
+        scope.launch {
+            try {
+                val payload = data + ("requestId" to requestId)
+                val body = gson.toJson(payload).toRequestBody("application/json".toMediaType())
+                val request = Request.Builder()
+                    .url("${getRelayUrl()}/api/response")
+                    .post(body)
+                    .build()
 
-        val json = gson.toJson(data + ("requestId" to requestId))
-        val sent = ws.send(json)
-        if (!sent) {
-            Log.w(TAG, "Failed to send response — send queue full")
+                client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        Log.w(TAG, "Response POST failed: ${response.code}")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Response POST error: ${e.message}")
+            }
         }
     }
 
-    // ─── Push Status Update (called by JarvisService during ReAct loop) ───
+    // ─── Push Status Update ───
     fun pushStatusUpdate(status: String, step: Int, action: String) {
         if (!isConnected.value) return
-        val msg = mapOf(
-            "type" to "status_update",
-            "status" to status,
-            "step" to step,
-            "action" to action,
-            "deviceId" to getDeviceId(),
-            "timestamp" to System.currentTimeMillis()
-        )
-        val sent = webSocket?.send(gson.toJson(msg))
-        if (sent == false) Log.w(TAG, "Status push failed — not connected")
+        scope.launch {
+            try {
+                val payload = mapOf(
+                    "deviceId" to getDeviceId(),
+                    "status" to status,
+                    "step" to step,
+                    "action" to action,
+                    "isRunning" to JarvisService.isRunning.value,
+                    "timestamp" to System.currentTimeMillis()
+                )
+                val body = gson.toJson(payload).toRequestBody("application/json".toMediaType())
+                val request = Request.Builder()
+                    .url("${getRelayUrl()}/api/status")
+                    .post(body)
+                    .build()
+
+                client.newCall(request).execute().close()
+            } catch (e: Exception) {
+                Log.w(TAG, "Status push error: ${e.message}")
+            }
+        }
     }
 
-    // ─── Device ID (persistent, unique per install) ───
+    private suspend fun pushStatusUpdate(status: String, step: Int, action: String, isRunning: Boolean) {
+        try {
+            val payload = mapOf(
+                "deviceId" to getDeviceId(),
+                "status" to status,
+                "step" to step,
+                "action" to action,
+                "isRunning" to isRunning,
+                "timestamp" to System.currentTimeMillis()
+            )
+            val body = gson.toJson(payload).toRequestBody("application/json".toMediaType())
+            val request = Request.Builder()
+                .url("${getRelayUrl()}/api/status")
+                .post(body)
+                .build()
+
+            client.newCall(request).execute().close()
+        } catch (e: Exception) {
+            Log.w(TAG, "Status push error: ${e.message}")
+        }
+    }
+
+    // ─── Reconnect ───
+    private fun scheduleReconnect() {
+        scope.launch {
+            delay(RECONNECT_BASE_MS)
+            if (isEnabled()) connect()
+        }
+    }
+
+    // ─── Test Connection ───
+    suspend fun testConnection(url: String): Pair<Boolean, String> = withContext(Dispatchers.IO) {
+        try {
+            val request = Request.Builder()
+                .url("$url/api/health")
+                .get()
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val body = response.body?.string() ?: ""
+                    val json = gson.fromJson(body, JsonObject::class.java)
+                    val version = json.get("version")?.asString ?: "?"
+                    val devCount = json.get("devices")?.asInt ?: 0
+                    Pair(true, "Relay v$version online ($devCount devices)")
+                } else {
+                    Pair(false, "HTTP ${response.code}")
+                }
+            }
+        } catch (e: Exception) {
+            Pair(false, "Connection failed: ${e.message}")
+        }
+    }
+
+    // ─── Device ID ───
     private fun getDeviceId(): String {
         val key = "device_id"
         var id = prefs?.getString(key, "") ?: ""
@@ -406,7 +491,7 @@ object RelayClient {
         return id
     }
 
-    // ─── Get connection stats for UI ───
+    // ─── Connection Info ───
     fun getConnectionInfo(): String {
         if (!isConnected.value) return relayStatus.value
         return "Connected (${getRelayUrl().removePrefix("https://").removePrefix("http://")})"
