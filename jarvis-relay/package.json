@@ -1,6 +1,6 @@
 {
-  "name": "jarvis-relay",
-  "version": "2.1.0",
+  "name": "jarvis-relay-server",
+  "version": "3.0.0",
   "description": "JARVIS MCP Relay Server — HTTP long-polling based, bulletproof on Render free tier",
   "main": "server.js",
   "scripts": {
@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "express": "^4.18.2",
-    "cors": "^2.8.5"
+    "cors": "^2.8.5",
+    "uuid": "^9.0.0"
   }
 }
