@@ -1,15 +1,29 @@
 #!/usr/bin/env node
 
 /**
- * JARVIS MCP Server v2.1 — HTTP Long-Polling
+ * JARVIS MCP Server v3.0 — Direct Action Control
+ *
+ * Z AI (GLM 5.1) is the brain. Phone just executes commands.
+ * No local Gemini API needed — the AI controlling via MCP makes all decisions.
  *
  * MCP tools exposed:
- *   jarvis_execute    — Send a task to JARVIS agent
- *   jarvis_status     — Get current agent status
- *   jarvis_kill       — Kill running task
- *   jarvis_screenshot — Capture current screen
- *   jarvis_list_apps  — List installed apps on device
- *   jarvis_devices    — List connected devices
+ *   jarvis_tap            — Tap at coordinates
+ *   jarvis_swipe          — Swipe from one point to another
+ *   jarvis_long_press     — Long press at coordinates
+ *   jarvis_type_text      — Type text at coordinates
+ *   jarvis_press_back     — Press back button
+ *   jarvis_press_home     — Press home button
+ *   jarvis_press_recents  — Press recents button
+ *   jarvis_open_app       — Open an app by name
+ *   jarvis_open_url       — Open URL in browser
+ *   jarvis_screenshot     — Capture screenshot
+ *   jarvis_ui_tree        — Get current UI tree
+ *   jarvis_look           — Screenshot + UI tree combined (most useful for AI)
+ *   jarvis_execute        — Delegate to local Gemini agent (legacy, needs API key)
+ *   jarvis_status         — Get current agent status
+ *   jarvis_kill           — Kill running task
+ *   jarvis_list_apps      — List installed apps
+ *   jarvis_devices        — List connected devices
  *
  * Usage in Claude Desktop / Cursor:
  *   {
@@ -44,7 +58,7 @@ async function httpRequest(method, path, body = null, retries = COLD_START_RETRI
   const options = {
     method,
     headers: { 'Content-Type': 'application/json' },
-    signal: AbortSignal.timeout(POLL_TIMEOUT_MS + 5000), // 35s total timeout
+    signal: AbortSignal.timeout(POLL_TIMEOUT_MS + 5000),
   };
 
   if (body) {
@@ -55,16 +69,13 @@ async function httpRequest(method, path, body = null, retries = COLD_START_RETRI
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
       const response = await fetch(url, options);
-
       if (!response.ok) {
         const text = await response.text().catch(() => '');
         throw new Error(`HTTP ${response.status}: ${text.slice(0, 200)}`);
       }
-
       return await response.json();
     } catch (err) {
       lastError = err;
-      // If it's a timeout or network error, retry (likely Render cold start)
       const isRetryable = err.name === 'AbortError' ||
                           err.name === 'TypeError' ||
                           err.message.includes('fetch failed') ||
@@ -77,10 +88,7 @@ async function httpRequest(method, path, body = null, retries = COLD_START_RETRI
         await new Promise(r => setTimeout(r, COLD_START_DELAY_MS * attempt));
         continue;
       }
-
-      if (!isRetryable) {
-        throw err; // Don't retry non-network errors
-      }
+      if (!isRetryable) throw err;
     }
   }
   throw lastError;
@@ -90,15 +98,13 @@ async function httpRequest(method, path, body = null, retries = COLD_START_RETRI
 async function findActiveDevice() {
   const devicesData = await httpRequest('GET', '/api/devices');
   const devices = devicesData.devices || [];
-  const activeDevice = devices.find(d => d.connected);
-  return activeDevice || null;
+  return devices.find(d => d.connected) || null;
 }
 
 // ─── Helper: Send command and wait for response ───
 async function sendCommand(type, params = {}) {
   const requestId = crypto.randomUUID();
 
-  // Find available device
   const activeDevice = await findActiveDevice();
   if (!activeDevice) {
     return {
@@ -107,7 +113,6 @@ async function sendCommand(type, params = {}) {
     };
   }
 
-  // Send command to device
   await httpRequest('POST', '/api/command', {
     requestId,
     type,
@@ -115,7 +120,6 @@ async function sendCommand(type, params = {}) {
     ...params,
   });
 
-  // Poll for response (long-poll, up to 25s from server + retry)
   try {
     const result = await httpRequest('GET', `/api/response/${requestId}`);
     return {
@@ -129,80 +133,11 @@ async function sendCommand(type, params = {}) {
   }
 }
 
-// ─── Helper: Send execute command and monitor progress ───
-async function sendExecuteCommand(task) {
-  const requestId = crypto.randomUUID();
-
-  // Find available device
-  const activeDevice = await findActiveDevice();
-  if (!activeDevice) {
-    return {
-      content: [{ type: 'text', text: 'No JARVIS device connected. Open the JARVIS app and enable MCP Relay in Settings.' }],
-      isError: true,
-    };
-  }
-
-  // Send execute command
-  await httpRequest('POST', '/api/command', {
-    requestId,
-    type: 'execute',
-    deviceId: activeDevice.deviceId,
-    task,
-  });
-
-  // Wait for ack (long-poll)
-  let ack;
-  try {
-    ack = await httpRequest('GET', `/api/response/${requestId}`);
-  } catch (err) {
-    return {
-      content: [{ type: 'text', text: `Task sent but no ack received: ${err.message}` }],
-    };
-  }
-
-  // Poll for status updates and completion
-  let finalResult = null;
-  const maxWait = 120000; // 2 minutes max
-  const startTime = Date.now();
-
-  while (Date.now() - startTime < maxWait) {
-    await new Promise(r => setTimeout(r, 3000));
-
-    try {
-      const statusData = await httpRequest('GET', `/api/device/${activeDevice.deviceId}/status`, null, 1);
-      const status = statusData.status;
-
-      if (status && !status.isRunning) {
-        finalResult = status;
-        break;
-      }
-    } catch (err) {
-      // Non-fatal — device status poll failed, keep trying
-    }
-  }
-
-  if (finalResult) {
-    return {
-      content: [{
-        type: 'text',
-        text: `Task Complete!\nStatus: ${finalResult.status}\nSteps: ${finalResult.step}\nLast Action: ${finalResult.action}\nDevice: ${activeDevice.deviceId}`
-      }],
-    };
-  } else {
-    return {
-      content: [{
-        type: 'text',
-        text: `Task is still running on device. Ack: ${ack.type || 'started'}\nDevice: ${activeDevice.deviceId}\nTask: ${task}`
-      }],
-    };
-  }
-}
-
 // ─── Create MCP Server ───
 const server = new Server(
   {
     name: 'jarvis-mcp-server',
-    version: '2.1.0',
+    version: '3.0.0',
   },
   {
     capabilities: {
@@ -216,14 +151,118 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
     tools: [
       {
+        name: 'jarvis_tap',
+        description: 'Tap the phone screen at specific coordinates. Use jarvis_look first to see the screen and find the right coordinates.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            x: { type: 'integer', description: 'X coordinate to tap' },
+            y: { type: 'integer', description: 'Y coordinate to tap' },
+          },
+          required: ['x', 'y'],
+        },
+      },
+      {
+        name: 'jarvis_swipe',
+        description: 'Swipe on the phone screen from one point to another. Use for scrolling or swiping.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            x: { type: 'integer', description: 'Start X coordinate' },
+            y: { type: 'integer', description: 'Start Y coordinate' },
+            x2: { type: 'integer', description: 'End X coordinate' },
+            y2: { type: 'integer', description: 'End Y coordinate' },
+            duration: { type: 'integer', description: 'Swipe duration in ms (default: 400)' },
+          },
+          required: ['x', 'y', 'x2', 'y2'],
+        },
+      },
+      {
+        name: 'jarvis_long_press',
+        description: 'Long press at specific coordinates on the phone screen (600ms hold).',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            x: { type: 'integer', description: 'X coordinate' },
+            y: { type: 'integer', description: 'Y coordinate' },
+          },
+          required: ['x', 'y'],
+        },
+      },
+      {
+        name: 'jarvis_type_text',
+        description: 'Type text into a field at specific coordinates. Taps the field first, then types the text.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            x: { type: 'integer', description: 'X coordinate of the text field' },
+            y: { type: 'integer', description: 'Y coordinate of the text field' },
+            text: { type: 'string', description: 'Text to type' },
+          },
+          required: ['x', 'y', 'text'],
+        },
+      },
+      {
+        name: 'jarvis_press_back',
+        description: 'Press the Android back button.',
+        inputSchema: { type: 'object', properties: {} },
+      },
+      {
+        name: 'jarvis_press_home',
+        description: 'Press the Android home button.',
+        inputSchema: { type: 'object', properties: {} },
+      },
+      {
+        name: 'jarvis_press_recents',
+        description: 'Press the Android recents/overview button.',
+        inputSchema: { type: 'object', properties: {} },
+      },
+      {
+        name: 'jarvis_open_app',
+        description: 'Open an app on the phone by name (e.g., "Chrome", "YouTube") or package name.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            app: { type: 'string', description: 'App name (e.g., "Chrome") or package name (e.g., "com.android.chrome")' },
+          },
+          required: ['app'],
+        },
+      },
+      {
+        name: 'jarvis_open_url',
+        description: 'Open a URL in the phone browser. Useful for navigating to websites.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            url: { type: 'string', description: 'URL to open (e.g., "https://aistudio.google.com")' },
+          },
+          required: ['url'],
+        },
+      },
+      {
+        name: 'jarvis_screenshot',
+        description: 'Capture a screenshot from the phone. Returns a base64-encoded JPEG image.',
+        inputSchema: { type: 'object', properties: {} },
+      },
+      {
+        name: 'jarvis_ui_tree',
+        description: 'Get the current UI tree from the phone. Shows all visible elements with their coordinates, text, and properties. Use this to find buttons, fields, and other interactive elements.',
+        inputSchema: { type: 'object', properties: {} },
+      },
+      {
+        name: 'jarvis_look',
+        description: 'Capture screenshot AND UI tree from the phone in one call. This is the most useful tool for understanding what is on the screen. Returns both the image and the structured UI element data with coordinates.',
+        inputSchema: { type: 'object', properties: {} },
+      },
+      {
         name: 'jarvis_execute',
-        description: 'Execute a task on your JARVIS Android agent. The agent will autonomously perform the task on your phone using accessibility gestures. Returns when the task completes or times out.',
+        description: 'Delegate a task to the local JARVIS agent on the phone. The phone uses its own Gemini API to execute the task autonomously. NOTE: Requires a working Gemini API key on the phone. Prefer using direct action tools (tap, swipe, type) instead.',
         inputSchema: {
           type: 'object',
           properties: {
             task: {
               type: 'string',
-              description: 'The task for JARVIS to execute (e.g., "Open YouTube and search for cooking tutorials", "Send a message to Mom saying I\'ll be late", "Take a screenshot")',
+              description: 'The task for JARVIS to execute autonomously',
             },
           },
           required: ['task'],
@@ -231,43 +270,23 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: 'jarvis_status',
-        description: 'Get the current status of your JARVIS agent — whether it\'s running a task, what step it\'s on, the current action, and which AI provider is being used.',
-        inputSchema: {
-          type: 'object',
-          properties: {},
-        },
+        description: 'Get the current status of your JARVIS agent.',
+        inputSchema: { type: 'object', properties: {} },
       },
       {
         name: 'jarvis_kill',
-        description: 'Kill the currently running task on JARVIS. Use this to stop a task that is stuck or taking too long.',
-        inputSchema: {
-          type: 'object',
-          properties: {},
-        },
-      },
-      {
-        name: 'jarvis_screenshot',
-        description: 'Capture a screenshot from the JARVIS device. Returns a base64-encoded JPEG image of the current screen.',
-        inputSchema: {
-          type: 'object',
-          properties: {},
-        },
+        description: 'Kill the currently running task on JARVIS.',
+        inputSchema: { type: 'object', properties: {} },
       },
       {
         name: 'jarvis_list_apps',
-        description: 'List all installed apps on the JARVIS device. Returns app names and package names.',
-        inputSchema: {
-          type: 'object',
-          properties: {},
-        },
+        description: 'List all installed apps on the JARVIS device.',
+        inputSchema: { type: 'object', properties: {} },
       },
       {
         name: 'jarvis_devices',
         description: 'List all JARVIS devices connected to the relay server.',
-        inputSchema: {
-          type: 'object',
-          properties: {},
-        },
+        inputSchema: { type: 'object', properties: {} },
       },
     ],
   };
@@ -279,84 +298,118 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
   try {
     switch (name) {
-      case 'jarvis_execute': {
-        const task = args?.task;
-        if (!task) {
-          return {
-            content: [{ type: 'text', text: 'Missing required parameter: task' }],
-            isError: true,
-          };
-        }
-        return await sendExecuteCommand(task);
-      }
+      case 'jarvis_tap':
+        return await sendCommand('tap', { x: args?.x, y: args?.y });
 
-      case 'jarvis_status': {
-        return await sendCommand('status');
-      }
+      case 'jarvis_swipe':
+        return await sendCommand('swipe', { x: args?.x, y: args?.y, x2: args?.x2, y2: args?.y2, duration: args?.duration });
 
-      case 'jarvis_kill': {
-        return await sendCommand('kill');
-      }
+      case 'jarvis_long_press':
+        return await sendCommand('long_press', { x: args?.x, y: args?.y });
+
+      case 'jarvis_type_text':
+        return await sendCommand('type_text', { x: args?.x, y: args?.y, text: args?.text });
+
+      case 'jarvis_press_back':
+        return await sendCommand('press_back');
+
+      case 'jarvis_press_home':
+        return await sendCommand('press_home');
+
+      case 'jarvis_press_recents':
+        return await sendCommand('press_recents');
+
+      case 'jarvis_open_app':
+        return await sendCommand('open_app', { app: args?.app });
+
+      case 'jarvis_open_url':
+        return await sendCommand('open_url', { url: args?.url });
 
       case 'jarvis_screenshot': {
         const result = await sendCommand('screenshot');
-        // If response has base64 image, format it properly
         try {
           const parsed = JSON.parse(result.content[0].text);
           if (parsed.base64) {
             return {
               content: [
-                {
-                  type: 'image',
-                  data: parsed.base64,
-                  mimeType: parsed.mimeType || 'image/jpeg',
-                },
-                {
-                  type: 'text',
-                  text: `Screenshot captured from device: ${parsed.deviceId || 'unknown'}`,
-                },
+                { type: 'image', data: parsed.base64, mimeType: parsed.mimeType || 'image/jpeg' },
+                { type: 'text', text: `Screenshot from device: ${parsed.deviceId || 'unknown'}` },
               ],
             };
           }
-        } catch (e) {
-          // Not JSON or no base64, return as-is
-        }
+        } catch (e) {}
         return result;
       }
 
-      case 'jarvis_list_apps': {
-        return await sendCommand('list_apps');
+      case 'jarvis_ui_tree':
+        return await sendCommand('ui_tree');
+
+      case 'jarvis_look': {
+        const result = await sendCommand('screenshot_and_ui');
+        try {
+          const parsed = JSON.parse(result.content[0].text);
+          const contents = [];
+          if (parsed.base64) {
+            contents.push({ type: 'image', data: parsed.base64, mimeType: parsed.mimeType || 'image/jpeg' });
+          }
+          if (parsed.uiTree) {
+            contents.push({ type: 'text', text: `UI Tree:\n${parsed.uiTree}` });
+          }
+          if (contents.length > 0) return { content: contents };
+        } catch (e) {}
+        return result;
       }
+
+      case 'jarvis_execute': {
+        const task = args?.task;
+        if (!task) {
+          return { content: [{ type: 'text', text: 'Missing required parameter: task' }], isError: true };
+        }
+        // Legacy: delegates to phone's local Gemini agent
+        const requestId = crypto.randomUUID();
+        const activeDevice = await findActiveDevice();
+        if (!activeDevice) {
+          return { content: [{ type: 'text', text: 'No JARVIS device connected.' }], isError: true };
+        }
+        await httpRequest('POST', '/api/command', { requestId, type: 'execute', deviceId: activeDevice.deviceId, task });
+        try {
+          const ack = await httpRequest('GET', `/api/response/${requestId}`);
+          return { content: [{ type: 'text', text: `Task started: ${JSON.stringify(ack)}` }] };
+        } catch (err) {
+          return { content: [{ type: 'text', text: `Task sent but no ack: ${err.message}` }] };
+        }
+      }
+
+      case 'jarvis_status':
+        return await sendCommand('status');
+
+      case 'jarvis_kill':
+        return await sendCommand('kill');
+
+      case 'jarvis_list_apps':
+        return await sendCommand('list_apps');
 
       case 'jarvis_devices': {
         const data = await httpRequest('GET', '/api/devices');
         const devices = data.devices || [];
         if (devices.length === 0) {
-          return {
-            content: [{ type: 'text', text: 'No JARVIS devices connected. Open the JARVIS app and enable MCP Relay in Settings.' }],
-          };
+          return { content: [{ type: 'text', text: 'No JARVIS devices connected.' }] };
         }
         return {
           content: [{
             type: 'text',
             text: devices.map(d =>
-              `${d.connected ? '[ONLINE]' : '[OFFLINE]'} ${d.deviceId}\n   Model: ${d.model}\n   Android: ${d.androidVersion}\n   Last Seen: ${new Date(d.lastSeen).toLocaleTimeString()}\n   Status: ${d.status ? d.status.status : 'Idle'}`
+              `${d.connected ? '[ONLINE]' : '[OFFLINE]'} ${d.deviceId}\n   Model: ${d.model}\n   Android: ${d.androidVersion}\n   Status: ${d.status ? d.status.status : 'Idle'}`
             ).join('\n\n'),
           }],
         };
       }
 
       default:
-        return {
-          content: [{ type: 'text', text: `Unknown tool: ${name}` }],
-          isError: true,
-        };
+        return { content: [{ type: 'text', text: `Unknown tool: ${name}` }], isError: true };
     }
   } catch (error) {
-    return {
-      content: [{ type: 'text', text: `Error: ${error.message}` }],
-      isError: true,
-    };
+    return { content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true };
   }
 });
 
@@ -364,7 +417,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error('JARVIS MCP Server v2.1 running (HTTP Long-Polling)');
+  console.error('JARVIS MCP Server v3.0 running (Direct Action Control)');
   console.error(`Relay: ${RELAY_URL}`);
 }
 

@@ -1,5 +1,6 @@
 package com.jarvis.agent
 
+import android.content.Intent
 import android.content.SharedPreferences
 import android.os.Build
 import android.util.Base64
@@ -25,18 +26,22 @@ import java.util.concurrent.TimeUnit
  *   - POST /api/response   → push command responses
  *   - GET  /api/warmup     → keep server alive (prevent cold starts)
  *
- * The poll loop runs continuously:
- *   1. GET /api/poll?deviceId=xxx (blocks up to 25s waiting for commands)
- *   2. If commands arrive, handle them
- *   3. Immediately poll again
- *   4. If poll times out (empty), immediately poll again
- *   5. If poll fails, wait with exponential backoff then retry
- *
- * Cold-start handling:
- *   - Render free tier spins down after 15min of inactivity
- *   - First request after spin-down takes 30-60s to respond
- *   - We use longer connect timeouts (60s) and retry on failures
- *   - A periodic warmup ping keeps the server alive
+ * Direct Action Commands (Z AI is the brain — no local Gemini needed):
+ *   - tap         → tap at (x, y)
+ *   - swipe       → swipe from (x,y) to (x2,y2)
+ *   - long_press  → long press at (x, y)
+ *   - type_text   → type text at (x, y)
+ *   - press_back  → press back button
+ *   - press_home  → press home button
+ *   - press_recents → press recents button
+ *   - open_app    → open app by name or package
+ *   - screenshot  → capture screenshot
+ *   - ui_tree     → get current UI tree
+ *   - execute     → delegate to local agent (needs Gemini API)
+ *   - status      → get device status
+ *   - kill        → kill running task
+ *   - list_apps   → list installed apps
+ *   - ping        → pong
  */
 object RelayClient {
 
@@ -145,7 +150,6 @@ object RelayClient {
         val maxRetries = 3
         for (attempt in 1..maxRetries) {
             if (registerDevice()) return true
-
             if (attempt < maxRetries) {
                 Log.w(TAG, "Registration attempt $attempt/$maxRetries failed, retrying in ${attempt * 5}s...")
                 relayStatus.value = "Waking up server (attempt $attempt/$maxRetries)..."
@@ -230,7 +234,6 @@ object RelayClient {
                 relayStatus.value = "Reconnecting in ${delayMs / 1000}s..."
 
                 if (consecutiveErrors >= 10) {
-                    // Try re-registering
                     Log.w(TAG, "Too many errors, re-registering...")
                     registered = registerDeviceWithRetry()
                     if (registered) {
@@ -243,7 +246,6 @@ object RelayClient {
             }
         }
 
-        // If we exit the loop and it's still enabled, schedule reconnect
         if (isEnabled()) {
             isConnected.value = false
             relayStatus.value = "Poll loop ended — reconnecting..."
@@ -274,7 +276,6 @@ object RelayClient {
         statusPushJob?.cancel()
         statusPushJob = scope.launch {
             while (currentCoroutineContext().isActive && isEnabled()) {
-                // Only push if there's meaningful status
                 if (JarvisService.isRunning.value || JarvisService.status.value != "Idle") {
                     pushStatusUpdate(
                         JarvisService.status.value,
@@ -288,7 +289,10 @@ object RelayClient {
         }
     }
 
-    // ─── Command Handler ───
+    // ══════════════════════════════════════════════════════════════
+    //  COMMAND HANDLER — Z AI is the brain, phone just executes
+    // ══════════════════════════════════════════════════════════════
+
     private fun handleCommand(cmd: JsonObject) {
         val type = cmd.get("type")?.asString ?: return
         val requestId = cmd.get("requestId")?.asString ?: ""
@@ -296,17 +300,276 @@ object RelayClient {
         Log.d(TAG, "Command received: $type (requestId: $requestId)")
 
         when (type) {
+            // ─── Direct Action Commands (Z AI controlled — no Gemini needed) ───
+            "tap" -> handleTap(cmd, requestId)
+            "swipe" -> handleSwipe(cmd, requestId)
+            "long_press" -> handleLongPress(cmd, requestId)
+            "type_text" -> handleTypeText(cmd, requestId)
+            "press_back" -> handlePressBack(requestId)
+            "press_home" -> handlePressHome(requestId)
+            "press_recents" -> handlePressRecents(requestId)
+            "open_app" -> handleOpenApp(cmd, requestId)
+            "open_url" -> handleOpenUrl(cmd, requestId)
+            "screenshot" -> handleScreenshot(requestId)
+            "ui_tree" -> handleUiTree(requestId)
+            "screenshot_and_ui" -> handleScreenshotAndUi(requestId)
+
+            // ─── Legacy commands (uses local Gemini agent) ───
             "execute" -> handleExecute(cmd, requestId)
             "status" -> handleStatus(requestId)
             "kill" -> handleKill(requestId)
-            "screenshot" -> handleScreenshot(requestId)
             "list_apps" -> handleListApps(requestId)
             "ping" -> sendResponse(requestId, mapOf("type" to "pong", "deviceId" to getDeviceId()))
-            else -> Log.w(TAG, "Unknown command type: $type")
+
+            else -> {
+                Log.w(TAG, "Unknown command type: $type")
+                sendResponse(requestId, mapOf("type" to "error", "message" to "Unknown command: $type", "deviceId" to getDeviceId()))
+            }
         }
     }
 
-    // ─── Command Handlers ───
+    // ══════════════════════════════════════════════════════════════
+    //  DIRECT ACTION HANDLERS — Z AI controls, phone executes
+    // ══════════════════════════════════════════════════════════════
+
+    private fun handleTap(cmd: JsonObject, requestId: String) {
+        val x = cmd.get("x")?.asInt ?: 0
+        val y = cmd.get("y")?.asInt ?: 0
+        val service = serviceRef ?: run {
+            sendResponse(requestId, mapOf("type" to "error", "message" to "Service not available"))
+            return
+        }
+
+        scope.launch {
+            withContext(Dispatchers.Main) {
+                service.executeDirectAction("TAP", x, y, 0, 0, "")
+            }
+            delay(300) // Wait for tap to register
+            sendResponse(requestId, mapOf(
+                "type" to "tap_done",
+                "x" to x, "y" to y,
+                "success" to true,
+                "deviceId" to getDeviceId()
+            ))
+        }
+    }
+
+    private fun handleSwipe(cmd: JsonObject, requestId: String) {
+        val x = cmd.get("x")?.asInt ?: 0
+        val y = cmd.get("y")?.asInt ?: 0
+        val x2 = cmd.get("x2")?.asInt ?: 0
+        val y2 = cmd.get("y2")?.asInt ?: 0
+        val duration = cmd.get("duration")?.asLong ?: 400L
+        val service = serviceRef ?: run {
+            sendResponse(requestId, mapOf("type" to "error", "message" to "Service not available"))
+            return
+        }
+
+        scope.launch {
+            withContext(Dispatchers.Main) {
+                service.executeDirectAction("SWIPE", x, y, x2, y2, "", duration)
+            }
+            delay(duration + 200)
+            sendResponse(requestId, mapOf(
+                "type" to "swipe_done",
+                "x" to x, "y" to y, "x2" to x2, "y2" to y2,
+                "success" to true,
+                "deviceId" to getDeviceId()
+            ))
+        }
+    }
+
+    private fun handleLongPress(cmd: JsonObject, requestId: String) {
+        val x = cmd.get("x")?.asInt ?: 0
+        val y = cmd.get("y")?.asInt ?: 0
+        val service = serviceRef ?: run {
+            sendResponse(requestId, mapOf("type" to "error", "message" to "Service not available"))
+            return
+        }
+
+        scope.launch {
+            withContext(Dispatchers.Main) {
+                service.executeDirectAction("LONG_PRESS", x, y, 0, 0, "")
+            }
+            delay(800)
+            sendResponse(requestId, mapOf(
+                "type" to "long_press_done",
+                "x" to x, "y" to y,
+                "success" to true,
+                "deviceId" to getDeviceId()
+            ))
+        }
+    }
+
+    private fun handleTypeText(cmd: JsonObject, requestId: String) {
+        val x = cmd.get("x")?.asInt ?: 0
+        val y = cmd.get("y")?.asInt ?: 0
+        val text = cmd.get("text")?.asString ?: ""
+        val service = serviceRef ?: run {
+            sendResponse(requestId, mapOf("type" to "error", "message" to "Service not available"))
+            return
+        }
+
+        scope.launch {
+            withContext(Dispatchers.Main) {
+                service.executeDirectAction("TYPE", x, y, 0, 0, text)
+            }
+            delay(500)
+            sendResponse(requestId, mapOf(
+                "type" to "type_done",
+                "x" to x, "y" to y, "text" to text,
+                "success" to true,
+                "deviceId" to getDeviceId()
+            ))
+        }
+    }
+
+    private fun handlePressBack(requestId: String) {
+        val service = serviceRef ?: run {
+            sendResponse(requestId, mapOf("type" to "error", "message" to "Service not available"))
+            return
+        }
+
+        scope.launch {
+            withContext(Dispatchers.Main) {
+                service.executeDirectAction("PRESS_BACK", 0, 0, 0, 0, "")
+            }
+            delay(300)
+            sendResponse(requestId, mapOf(
+                "type" to "press_back_done",
+                "success" to true,
+                "deviceId" to getDeviceId()
+            ))
+        }
+    }
+
+    private fun handlePressHome(requestId: String) {
+        val service = serviceRef ?: run {
+            sendResponse(requestId, mapOf("type" to "error", "message" to "Service not available"))
+            return
+        }
+
+        scope.launch {
+            withContext(Dispatchers.Main) {
+                service.executeDirectAction("PRESS_HOME", 0, 0, 0, 0, "")
+            }
+            delay(300)
+            sendResponse(requestId, mapOf(
+                "type" to "press_home_done",
+                "success" to true,
+                "deviceId" to getDeviceId()
+            ))
+        }
+    }
+
+    private fun handlePressRecents(requestId: String) {
+        val service = serviceRef ?: run {
+            sendResponse(requestId, mapOf("type" to "error", "message" to "Service not available"))
+            return
+        }
+
+        scope.launch {
+            withContext(Dispatchers.Main) {
+                service.executeDirectAction("PRESS_RECENTS", 0, 0, 0, 0, "")
+            }
+            delay(300)
+            sendResponse(requestId, mapOf(
+                "type" to "press_recents_done",
+                "success" to true,
+                "deviceId" to getDeviceId()
+            ))
+        }
+    }
+
+    private fun handleOpenApp(cmd: JsonObject, requestId: String) {
+        val app = cmd.get("app")?.asString ?: ""
+        val service = serviceRef ?: run {
+            sendResponse(requestId, mapOf("type" to "error", "message" to "Service not available"))
+            return
+        }
+
+        scope.launch {
+            withContext(Dispatchers.Main) {
+                service.executeDirectAction("OPEN_APP", 0, 0, 0, 0, app)
+            }
+            delay(2000) // Wait for app to open
+            sendResponse(requestId, mapOf(
+                "type" to "open_app_done",
+                "app" to app,
+                "success" to true,
+                "deviceId" to getDeviceId()
+            ))
+        }
+    }
+
+    private fun handleOpenUrl(cmd: JsonObject, requestId: String) {
+        val url = cmd.get("url")?.asString ?: ""
+        val service = serviceRef ?: run {
+            sendResponse(requestId, mapOf("type" to "error", "message" to "Service not available"))
+            return
+        }
+
+        scope.launch {
+            withContext(Dispatchers.Main) {
+                val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                service.startActivity(intent)
+            }
+            delay(3000) // Wait for browser to load
+            sendResponse(requestId, mapOf(
+                "type" to "open_url_done",
+                "url" to url,
+                "success" to true,
+                "deviceId" to getDeviceId()
+            ))
+        }
+    }
+
+    private fun handleUiTree(requestId: String) {
+        val service = serviceRef ?: run {
+            sendResponse(requestId, mapOf("type" to "error", "message" to "Service not available"))
+            return
+        }
+
+        scope.launch {
+            val uiTree = withContext(Dispatchers.Main) {
+                service.getUiTreePublic()
+            }
+            sendResponse(requestId, mapOf(
+                "type" to "ui_tree",
+                "uiTree" to (uiTree ?: ""),
+                "deviceId" to getDeviceId()
+            ))
+        }
+    }
+
+    private fun handleScreenshotAndUi(requestId: String) {
+        val service = serviceRef ?: run {
+            sendResponse(requestId, mapOf("type" to "error", "message" to "Service not available"))
+            return
+        }
+
+        scope.launch {
+            val b64 = withContext(Dispatchers.Main) {
+                try { service.captureScreenPublic() }
+                catch (e: Exception) { Log.e(TAG, "Screenshot failed: ${e.message}"); null }
+            }
+            val uiTree = withContext(Dispatchers.Main) {
+                service.getUiTreePublic()
+            }
+            sendResponse(requestId, mapOf(
+                "type" to "screenshot_and_ui",
+                "base64" to (b64 ?: ""),
+                "mimeType" to "image/jpeg",
+                "uiTree" to (uiTree ?: ""),
+                "deviceId" to getDeviceId()
+            ))
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    //  LEGACY COMMAND HANDLERS (uses local Gemini agent)
+    // ══════════════════════════════════════════════════════════════
 
     private fun handleExecute(msg: JsonObject, requestId: String) {
         val task = msg.get("task")?.asString ?: return
@@ -314,7 +577,6 @@ object RelayClient {
 
         JarvisService.startTask(task)
 
-        // Send acknowledgment
         sendResponse(requestId, mapOf(
             "type" to "execute_ack",
             "status" to "started",
@@ -322,7 +584,6 @@ object RelayClient {
             "deviceId" to getDeviceId()
         ))
 
-        // Monitor task and send periodic updates
         scope.launch {
             var lastStatus = ""
             var lastAction = ""
@@ -343,7 +604,6 @@ object RelayClient {
                 }
             }
 
-            // Task finished
             sendResponse(requestId, mapOf(
                 "type" to "execute_complete",
                 "status" to JarvisService.status.value,
@@ -475,7 +735,6 @@ object RelayClient {
         }
     }
 
-    // ─── Push Status Update (internal, with isRunning param) ───
     private suspend fun pushStatusUpdate(status: String, step: Int, action: String, isRunning: Boolean) {
         try {
             val payload = mapOf(

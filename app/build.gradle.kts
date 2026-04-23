@@ -14,8 +14,8 @@ android {
         applicationId = "com.jarvis.agent"
         minSdk = 30
         targetSdk = 34
-        versionCode = 6
-        versionName = "5.1"
+        versionCode = 7
+        versionName = "6.0"
 
         val localProperties = Properties()
         val localPropertiesFile = rootProject.file("local.properties")

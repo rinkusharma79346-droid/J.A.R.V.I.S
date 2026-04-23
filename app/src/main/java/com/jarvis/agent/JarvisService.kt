@@ -323,6 +323,32 @@ class JarvisService : AccessibilityService() {
      */
     suspend fun captureScreenPublic(): String? = captureScreen()
 
+    /**
+     * Public wrapper for relay client to get UI tree.
+     */
+    fun getUiTreePublic(): String? {
+        return try {
+            parseUITree(rootInActiveWindow)
+        } catch (e: Exception) {
+            Log.e(TAG, "getUiTreePublic failed: ${e.message}")
+            null
+        }
+    }
+
+    /**
+     * Direct action execution for remote-controlled mode (Z AI is the brain).
+     * Called by RelayClient to execute individual actions without the local ReAct loop.
+     */
+    fun executeDirectAction(action: String, x: Int, y: Int, x2: Int, y2: Int, text: String, duration: Long = 0L) {
+        val agentAction = AgentAction(
+            action = action,
+            x = x, y = y,
+            x2 = x2, y2 = y2,
+            text = text
+        )
+        executeAction(agentAction)
+    }
+
     // ════════════════════════════════════════════════
     //  UI TREE PARSER
     // ════════════════════════════════════════════════
