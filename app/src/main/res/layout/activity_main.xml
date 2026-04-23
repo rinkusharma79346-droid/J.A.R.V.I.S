@@ -25,7 +25,7 @@
             android:layout_marginBottom="16dp">
 
             <TextView android:id="@+id/tvApiKeyStatus" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="● API Key" android:textColor="@color/green_accent" android:textSize="11sp" android:fontFamily="monospace" />
-            <TextView android:id="@+id/tvRelayStatus" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="○ Relay" android:textColor="@color/gray" android:textSize="11sp" android:fontFamily="monospace" android:layout_marginEnd="8dp" />
+            <TextView android:id="@+id/tvRelayStatus" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="○ MCP" android:textColor="@color/gray" android:textSize="11sp" android:fontFamily="monospace" android:layout_marginEnd="8dp" />
             <TextView android:id="@+id/tvApiProvider" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="API: Gemini / gemini-2.0-flash" android:textColor="#66FFFFFF" android:textSize="10sp" android:fontFamily="monospace" android:layout_marginEnd="8dp" />
             <ImageButton android:id="@+id/btnSettings" android:layout_width="36dp" android:layout_height="36dp" android:src="@android:drawable/ic_menu_preferences" android:background="@drawable/btn_glass" android:contentDescription="Settings" android:padding="8dp" android:scaleType="fitCenter" app:tint="@color/cyan_primary" />
         </LinearLayout>
@@ -48,6 +48,8 @@
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="50 max" android:textColor="#4DFFFFFF" android:textSize="10sp" android:fontFamily="monospace" />
             </LinearLayout>
             <TextView android:id="@+id/tvAction" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="—" android:textColor="@color/cyan_primary" android:textSize="12sp" android:fontFamily="monospace" android:layout_marginTop="8dp" android:maxLines="2" android:ellipsize="end" />
+            <!-- MCP Relay detail -->
+            <TextView android:id="@+id/tvRelayDetail" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="" android:textColor="@color/gray" android:textSize="10sp" android:fontFamily="monospace" android:layout_marginTop="6dp" android:maxLines="1" android:ellipsize="end" />
         </LinearLayout>
 
         <!-- Task Input -->

@@ -17,7 +17,9 @@ class HUDService : Service() {
     private lateinit var windowManager: WindowManager
     private lateinit var overlayView: View
     private lateinit var tvStatus: TextView
+    private lateinit var tvHudRelay: TextView
     private var updateJob: Job? = null
+    private var relayJob: Job? = null
     private val serviceScope = CoroutineScope(Dispatchers.Main + Job())
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -27,6 +29,7 @@ class HUDService : Service() {
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         overlayView = LayoutInflater.from(this).inflate(R.layout.overlay_hud, null)
         tvStatus = overlayView.findViewById(R.id.hudStatus)
+        tvHudRelay = overlayView.findViewById(R.id.hudRelay)
         val btnKill = overlayView.findViewById<Button>(R.id.btnKill)
         val tvHudStep = overlayView.findViewById<TextView>(R.id.hudStep)
 
@@ -38,10 +41,21 @@ class HUDService : Service() {
 
         updateJob = serviceScope.launch { JarvisService.status.collectLatest { tvStatus.text = it } }
         serviceScope.launch { JarvisService.currentStep.collectLatest { tvHudStep.text = if (it > 0) "Step $it/50" else "" } }
+
+        // Relay connection indicator in HUD
+        relayJob = serviceScope.launch {
+            RelayClient.isConnected.collectLatest { connected ->
+                tvHudRelay.text = if (connected) "● MCP" else ""
+                tvHudRelay.setTextColor(getColor(if (connected) R.color.green_accent else R.color.gray))
+            }
+        }
     }
 
     override fun onDestroy() {
-        super.onDestroy(); updateJob?.cancel(); serviceScope.cancel()
+        super.onDestroy()
+        updateJob?.cancel()
+        relayJob?.cancel()
+        serviceScope.cancel()
         if (::overlayView.isInitialized) windowManager.removeView(overlayView)
     }
 }

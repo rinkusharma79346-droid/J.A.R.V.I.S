@@ -12,27 +12,46 @@ import okhttp3.*
 import java.util.concurrent.TimeUnit
 
 /**
- * WebSocket client that connects the JARVIS Android app to the relay server.
+ * WebSocket client that connects the JARVIS Android app to the MCP relay server.
  * This enables MCP clients (Claude Desktop, Cursor, etc.) to control the agent remotely.
+ *
+ * Protocol:
+ *   Device → Relay:  { type: "register_device", deviceId, model, androidVersion }
+ *   Device → Relay:  { type: "status_update", status, step, action, deviceId }
+ *   Relay → Device:  { type: "execute", task, requestId }
+ *   Relay → Device:  { type: "status", requestId }
+ *   Relay → Device:  { type: "kill", requestId }
+ *   Relay → Device:  { type: "screenshot", requestId }
+ *   Relay → Device:  { type: "list_apps", requestId }
+ *   Device → Relay:  { type: "<response>", requestId, ... }
  */
 object RelayClient {
 
     private const val TAG = "RelayClient"
     private const val PREF_RELAY_URL = "relay_url"
     private const val PREF_RELAY_ENABLED = "relay_enabled"
+    private const val DEFAULT_RELAY_URL = "https://j-a-r-v-i-s-ktlh.onrender.com"
+    private const val WS_PATH = "/ws"           // WebSocket endpoint on relay
+    private const val RECONNECT_BASE_MS = 3000L  // Initial reconnect delay
+    private const val RECONNECT_MAX_MS = 60000L  // Max reconnect delay
+    private const val HEARTBEAT_INTERVAL_MS = 25000L // Ping interval
 
     val isConnected = MutableStateFlow(false)
     val relayStatus = MutableStateFlow("Disconnected")
 
     private var webSocket: WebSocket? = null
     private var reconnectJob: Job? = null
+    private var heartbeatJob: Job? = null
+    private var reconnectAttempt = 0
     private val client = OkHttpClient.Builder()
         .readTimeout(0, TimeUnit.MILLISECONDS)
         .pingInterval(30, TimeUnit.SECONDS)
+        .connectTimeout(15, TimeUnit.SECONDS)
         .build()
     private val gson = Gson()
     private var prefs: SharedPreferences? = null
     private var serviceRef: JarvisService? = null
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     // ─── Config ───
     fun init(prefs: SharedPreferences, service: JarvisService) {
@@ -40,7 +59,7 @@ object RelayClient {
         this.serviceRef = service
     }
 
-    fun getRelayUrl(): String = prefs?.getString(PREF_RELAY_URL, "") ?: ""
+    fun getRelayUrl(): String = prefs?.getString(PREF_RELAY_URL, DEFAULT_RELAY_URL) ?: DEFAULT_RELAY_URL
 
     fun setRelayUrl(url: String) {
         prefs?.edit()?.putString(PREF_RELAY_URL, url)?.apply()
@@ -64,18 +83,22 @@ object RelayClient {
 
         disconnect()
 
-        val wsUrl = if (url.startsWith("https://")) url.replace("https://", "wss://")
-            else if (url.startsWith("http://")) url.replace("http://", "ws://")
-            else if (!url.startsWith("ws")) "wss://$url"
-            else url
-
+        // Build WebSocket URL: https://... → wss://.../ws
+        val wsUrl = buildWsUrl(url)
         Log.i(TAG, "Connecting to relay: $wsUrl")
         relayStatus.value = "Connecting..."
 
-        val request = Request.Builder().url(wsUrl).build()
+        val request = Request.Builder()
+            .url(wsUrl)
+            .header("X-Device-Id", getDeviceId())
+            .header("X-Device-Model", "${Build.MANUFACTURER} ${Build.MODEL}")
+            .header("X-Android-Version", Build.VERSION.RELEASE)
+            .build()
+
         webSocket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
-                Log.i(TAG, "Connected to relay")
+                Log.i(TAG, "Connected to relay — code: ${response.code}")
+                reconnectAttempt = 0
                 isConnected.value = true
                 relayStatus.value = "Connected"
 
@@ -85,8 +108,12 @@ object RelayClient {
                     addProperty("deviceId", getDeviceId())
                     addProperty("model", "${Build.MANUFACTURER} ${Build.MODEL}")
                     addProperty("androidVersion", Build.VERSION.RELEASE)
+                    addProperty("sdkVersion", Build.VERSION.SDK_INT)
                 }
                 webSocket.send(gson.toJson(registerMsg))
+
+                // Start heartbeat
+                startHeartbeat()
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
@@ -98,6 +125,7 @@ object RelayClient {
             }
 
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                Log.i(TAG, "WebSocket closing: $code $reason")
                 webSocket.close(1000, null)
             }
 
@@ -114,19 +142,66 @@ object RelayClient {
     }
 
     fun disconnect() {
+        heartbeatJob?.cancel()
+        heartbeatJob = null
+        reconnectJob?.cancel()
+        reconnectJob = null
         webSocket?.close(1000, "Disconnecting")
         webSocket = null
         isConnected.value = false
         relayStatus.value = "Disconnected"
-        reconnectJob?.cancel()
+        reconnectAttempt = 0
+    }
+
+    private fun buildWsUrl(baseUrl: String): String {
+        var wsUrl = baseUrl.trimEnd('/')
+        // Convert HTTP(S) to WS(S)
+        wsUrl = when {
+            wsUrl.startsWith("https://") -> wsUrl.replace("https://", "wss://")
+            wsUrl.startsWith("http://") -> wsUrl.replace("http://", "ws://")
+            wsUrl.startsWith("wss://") -> wsUrl
+            wsUrl.startsWith("ws://") -> wsUrl
+            else -> "wss://$wsUrl"
+        }
+        // Append WebSocket path if not already present
+        if (!wsUrl.endsWith("/ws") && !wsUrl.endsWith("/socket") && !wsUrl.contains("/ws?")) {
+            wsUrl = "$wsUrl$WS_PATH"
+        }
+        return wsUrl
+    }
+
+    private fun startHeartbeat() {
+        heartbeatJob?.cancel()
+        heartbeatJob = scope.launch {
+            while (isActive) {
+                delay(HEARTBEAT_INTERVAL_MS)
+                if (isConnected.value) {
+                    val ping = JsonObject().apply {
+                        addProperty("type", "ping")
+                        addProperty("deviceId", getDeviceId())
+                        addProperty("timestamp", System.currentTimeMillis())
+                    }
+                    webSocket?.send(gson.toJson(ping))
+                }
+            }
+        }
     }
 
     private fun handleDisconnect() {
         isConnected.value = false
+        heartbeatJob?.cancel()
+        heartbeatJob = null
+
         if (isEnabled()) {
-            relayStatus.value = "Reconnecting in 10s..."
-            reconnectJob = CoroutineScope(Dispatchers.IO).launch {
-                delay(10000)
+            reconnectAttempt++
+            val delayMs = (RECONNECT_BASE_MS * (1L shl (reconnectAttempt.coerceAtMost(5) - 1)))
+                .coerceIn(RECONNECT_BASE_MS, RECONNECT_MAX_MS)
+            relayStatus.value = "Reconnecting in ${delayMs / 1000}s (attempt $reconnectAttempt)..."
+            Log.i(TAG, "Reconnecting in ${delayMs}ms (attempt $reconnectAttempt)")
+
+            reconnectJob?.cancel()
+            reconnectJob = scope.launch {
+                delay(delayMs)
                 if (isEnabled()) connect()
             }
         } else {
@@ -136,7 +211,12 @@ object RelayClient {
 
     // ─── Message Handler ───
     private fun handleMessage(text: String) {
-        val msg = gson.fromJson(text, JsonObject::class.java)
+        val msg = try {
+            gson.fromJson(text, JsonObject::class.java)
+        } catch (e: Exception) {
+            Log.w(TAG, "Non-JSON message: ${text.take(100)}")
+            return
+        }
         val type = msg.get("type")?.asString ?: return
         val requestId = msg.get("requestId")?.asString ?: ""
 
@@ -148,6 +228,9 @@ object RelayClient {
             "kill" -> handleKill(requestId)
             "screenshot" -> handleScreenshot(requestId)
             "list_apps" -> handleListApps(requestId)
+            "ping" -> sendResponse("", mapOf("type" to "pong", "deviceId" to getDeviceId()))
+            "pong" -> { /* heartbeat ack */ }
+            else -> Log.w(TAG, "Unknown message type: $type")
         }
     }
 
@@ -160,33 +243,43 @@ object RelayClient {
         // Start the task on the agent
         JarvisService.startTask(task)
 
-        // Send initial response
+        // Send initial acknowledgment
         sendResponse(requestId, mapOf(
             "type" to "execute_ack",
             "status" to "started",
-            "task" to task
+            "task" to task,
+            "deviceId" to getDeviceId()
         ))
 
-        // Monitor and send completion after a delay
-        CoroutineScope(Dispatchers.IO).launch {
+        // Monitor task and send periodic updates
+        scope.launch {
+            var lastStatus = ""
+            var lastAction = ""
             while (JarvisService.isRunning.value) {
-                delay(1000)
-                // Send periodic status updates
-                sendResponse(requestId, mapOf(
-                    "type" to "status_update",
-                    "status" to JarvisService.status.value,
-                    "step" to JarvisService.currentStep.value,
-                    "action" to JarvisService.currentAction.value
-                ))
+                delay(1500)
+                val curStatus = JarvisService.status.value
+                val curAction = JarvisService.currentAction.value
+                // Only send if something changed
+                if (curStatus != lastStatus || curAction != lastAction) {
+                    sendResponse(requestId, mapOf(
+                        "type" to "status_update",
+                        "status" to curStatus,
+                        "step" to JarvisService.currentStep.value,
+                        "action" to curAction,
+                        "deviceId" to getDeviceId()
+                    ))
+                    lastStatus = curStatus
+                    lastAction = curAction
+                }
             }
 
-            // Task finished
+            // Task finished — send completion
             sendResponse(requestId, mapOf(
                 "type" to "execute_complete",
                 "status" to JarvisService.status.value,
                 "step" to JarvisService.currentStep.value,
                 "action" to JarvisService.currentAction.value,
-                "reason" to JarvisService.status.value
+                "deviceId" to getDeviceId()
             ))
         }
     }
@@ -201,7 +294,8 @@ object RelayClient {
             "step" to JarvisService.currentStep.value,
             "action" to JarvisService.currentAction.value,
             "provider" to config.provider,
-            "model" to config.model
+            "model" to config.model,
+            "deviceId" to getDeviceId()
         ))
     }
 
@@ -209,20 +303,18 @@ object RelayClient {
         JarvisService.stopTask()
         sendResponse(requestId, mapOf(
             "type" to "kill_response",
-            "message" to "Task killed"
+            "message" to "Task killed",
+            "deviceId" to getDeviceId()
         ))
     }
 
     private fun handleScreenshot(requestId: String) {
-        // Screenshot capture needs to happen on the service
-        CoroutineScope(Dispatchers.IO).launch {
+        scope.launch {
             val service = serviceRef ?: run {
                 sendResponse(requestId, mapOf("type" to "error", "message" to "Service not available"))
                 return@launch
             }
 
-            // Use the service's captureScreen via reflection or direct call
-            // We'll capture on the main thread
             val b64 = withContext(Dispatchers.Main) {
                 try {
                     service.captureScreenPublic()
@@ -235,12 +327,15 @@ object RelayClient {
             if (b64 != null) {
                 sendResponse(requestId, mapOf(
                     "type" to "screenshot_response",
-                    "base64" to b64
+                    "base64" to b64,
+                    "mimeType" to "image/jpeg",
+                    "deviceId" to getDeviceId()
                 ))
             } else {
                 sendResponse(requestId, mapOf(
                     "type" to "error",
-                    "message" to "Screenshot capture failed. Is accessibility service active?"
+                    "message" to "Screenshot capture failed. Is accessibility service active?",
+                    "deviceId" to getDeviceId()
                 ))
             }
         }
@@ -253,16 +348,20 @@ object RelayClient {
         }
 
         val pm = service.packageManager
-        val apps = pm.getInstalledApplications(0).map { appInfo ->
-            mapOf(
-                "name" to (pm.getApplicationLabel(appInfo).toString()),
-                "packageName" to appInfo.packageName
-            )
-        }.sortedBy { it["name"].toString().lowercase() }
+        val apps = pm.getInstalledApplications(0)
+            .filter { pm.getLaunchIntentForPackage(it.packageName) != null } // Only launchable apps
+            .map { appInfo ->
+                mapOf(
+                    "name" to pm.getApplicationLabel(appInfo).toString(),
+                    "packageName" to appInfo.packageName
+                )
+            }.sortedBy { it["name"].toString().lowercase() }
 
         sendResponse(requestId, mapOf(
             "type" to "app_list",
-            "apps" to apps
+            "apps" to apps,
+            "count" to apps.size,
+            "deviceId" to getDeviceId()
         ))
     }
 
@@ -275,10 +374,13 @@ object RelayClient {
         }
 
         val json = gson.toJson(data + ("requestId" to requestId))
-        ws.send(json)
+        val sent = ws.send(json)
+        if (!sent) {
+            Log.w(TAG, "Failed to send response — send queue full")
+        }
     }
 
-    // ─── Push Status Update (called by JarvisService) ───
+    // ─── Push Status Update (called by JarvisService during ReAct loop) ───
     fun pushStatusUpdate(status: String, step: Int, action: String) {
         if (!isConnected.value) return
         val msg = mapOf(
@@ -286,9 +388,11 @@ object RelayClient {
             "status" to status,
             "step" to step,
             "action" to action,
-            "deviceId" to getDeviceId()
+            "deviceId" to getDeviceId(),
+            "timestamp" to System.currentTimeMillis()
         )
-        webSocket?.send(gson.toJson(msg))
+        val sent = webSocket?.send(gson.toJson(msg))
+        if (sent == false) Log.w(TAG, "Status push failed — not connected")
     }
 
     // ─── Device ID (persistent, unique per install) ───
@@ -300,5 +404,11 @@ object RelayClient {
             prefs?.edit()?.putString(key, id)?.apply()
         }
         return id
+    }
+
+    // ─── Get connection stats for UI ───
+    fun getConnectionInfo(): String {
+        if (!isConnected.value) return relayStatus.value
+        return "Connected (${getRelayUrl().removePrefix("https://").removePrefix("http://")})"
     }
 }

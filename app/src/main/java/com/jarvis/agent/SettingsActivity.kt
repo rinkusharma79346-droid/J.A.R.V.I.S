@@ -8,10 +8,16 @@ import androidx.appcompat.app.AppCompatActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 class SettingsActivity : AppCompatActivity() {
     private var validateJob: Job? = null
+    private var relayTestJob: Job? = null
+    private var relayStatusJob: Job? = null
+    private var relayDetailJob: Job? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_settings)
@@ -33,6 +39,7 @@ class SettingsActivity : AppCompatActivity() {
         val etRelayUrl = findViewById<EditText>(R.id.etRelayUrl)
         val switchRelay = findViewById<Switch>(R.id.switchRelay)
         val tvRelayStatus = findViewById<TextView>(R.id.tvRelayStatus)
+        val btnTestRelay = findViewById<Button>(R.id.btnTestRelay)
 
         val providers = listOf("Gemini", "OpenAI", "NVIDIA NIM", "Custom (OpenAI-compatible)")
         val providerKeys = listOf("gemini", "openai", "nvidia", "custom")
@@ -103,21 +110,87 @@ class SettingsActivity : AppCompatActivity() {
             override fun onStopTrackingTouch(s: SeekBar?) { SettingsManager.setMaxSteps(this@SettingsActivity, s?.progress ?: 50) }
         })
 
-        // Relay settings
-        etRelayUrl.setText(RelayClient.getRelayUrl())
+        // ─── Relay settings ───
+        val savedRelayUrl = RelayClient.getRelayUrl()
+        etRelayUrl.setText(if (savedRelayUrl.isNotBlank()) savedRelayUrl else SettingsManager.DEFAULT_RELAY_URL)
         switchRelay.isChecked = RelayClient.isEnabled()
-        tvRelayStatus.text = if (RelayClient.isConnected.value) "● Connected" else "○ Disconnected"
+
+        // Observe relay connection status
+        relayStatusJob = CoroutineScope(Dispatchers.Main).launch {
+            RelayClient.isConnected.collectLatest { connected ->
+                tvRelayStatus.text = if (connected) "● Connected" else "○ Disconnected"
+                tvRelayStatus.setTextColor(getColor(if (connected) R.color.green_accent else R.color.gray))
+            }
+        }
+        relayDetailJob = CoroutineScope(Dispatchers.Main).launch {
+            RelayClient.relayStatus.collectLatest { status ->
+                if (!RelayClient.isConnected.value) {
+                    tvRelayStatus.text = "○ $status"
+                    tvRelayStatus.setTextColor(getColor(R.color.gray))
+                }
+            }
+        }
 
         switchRelay.setOnCheckedChangeListener { _, checked ->
+            val url = etRelayUrl.text.toString().trim()
+            if (url.isNotBlank()) RelayClient.setRelayUrl(url)
             RelayClient.setEnabled(checked)
             if (checked) {
-                val url = etRelayUrl.text.toString().trim()
-                if (url.isNotBlank()) { RelayClient.setRelayUrl(url); RelayClient.connect() }
-            } else { RelayClient.disconnect() }
+                RelayClient.connect()
+            } else {
+                RelayClient.disconnect()
+            }
         }
 
         etRelayUrl.setOnFocusChangeListener { _, hasFocus ->
-            if (!hasFocus) { RelayClient.setRelayUrl(etRelayUrl.text.toString().trim()) }
+            if (!hasFocus) {
+                val url = etRelayUrl.text.toString().trim()
+                if (url.isNotBlank()) RelayClient.setRelayUrl(url)
+            }
+        }
+
+        // Test relay connection
+        btnTestRelay.setOnClickListener {
+            val url = etRelayUrl.text.toString().trim()
+            if (url.isBlank()) {
+                tvRelayStatus.text = "○ Enter relay URL first"
+                tvRelayStatus.setTextColor(getColor(R.color.red_accent))
+                return@setOnClickListener
+            }
+
+            RelayClient.setRelayUrl(url)
+            btnTestRelay.isEnabled = false
+            btnTestRelay.text = "Connecting..."
+            tvRelayStatus.text = "○ Testing..."
+            tvRelayStatus.setTextColor(getColor(R.color.amber_accent))
+
+            relayTestJob?.cancel()
+            relayTestJob = CoroutineScope(Dispatchers.Main).launch {
+                // Disconnect existing and try fresh
+                RelayClient.disconnect()
+                delay(500)
+                switchRelay.isChecked = true
+                RelayClient.setEnabled(true)
+                RelayClient.connect()
+
+                // Wait up to 10 seconds for connection
+                var waited = 0
+                while (waited < 10000 && !RelayClient.isConnected.value) {
+                    delay(500)
+                    waited += 500
+                }
+
+                btnTestRelay.isEnabled = true
+                btnTestRelay.text = "TEST RELAY"
+
+                if (RelayClient.isConnected.value) {
+                    tvRelayStatus.text = "● Connected!"
+                    tvRelayStatus.setTextColor(getColor(R.color.green_accent))
+                } else {
+                    tvRelayStatus.text = "✗ Connection failed"
+                    tvRelayStatus.setTextColor(getColor(R.color.red_accent))
+                }
+            }
         }
 
         btnBack.setOnClickListener {
@@ -131,5 +204,12 @@ class SettingsActivity : AppCompatActivity() {
             finish()
         }
     }
-    override fun onDestroy() { super.onDestroy(); validateJob?.cancel() }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        validateJob?.cancel()
+        relayTestJob?.cancel()
+        relayStatusJob?.cancel()
+        relayDetailJob?.cancel()
+    }
 }

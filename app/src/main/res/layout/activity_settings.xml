@@ -44,10 +44,11 @@
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="MCP RELAY" android:textColor="#4DFFFFFF" android:textSize="9sp" android:fontFamily="monospace" android:letterSpacing="0.2" android:layout_marginBottom="12dp" />
             <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical" android:layout_marginBottom="12dp">
                 <Switch android:id="@+id/switchRelay" android:layout_width="wrap_content" android:layout_height="wrap_content" android:trackTint="@color/cyan_primary" android:thumbTint="@color/cyan_primary" android:layout_marginEnd="12dp" />
-                <TextView android:id="@+id/tvRelayStatus" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="○ Disconnected" android:textColor="@color/gray" android:textSize="12sp" android:fontFamily="monospace" />
+                <TextView android:id="@+id/tvRelayStatus" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="○ Disconnected" android:textColor="@color/gray" android:textSize="12sp" android:fontFamily="monospace" />
             </LinearLayout>
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Relay Server URL" android:textColor="#99FFFFFF" android:textSize="12sp" android:fontFamily="monospace" android:layout_marginBottom="6dp" />
-            <EditText android:id="@+id/etRelayUrl" android:layout_width="match_parent" android:layout_height="44dp" android:background="@drawable/edittext_glass" android:hint="wss://your-relay.onrender.com" android:textColorHint="#4DFFFFFF" android:textColor="@color/white" android:textSize="12sp" android:fontFamily="monospace" android:padding="12dp" android:inputType="textUri" android:singleLine="true" android:importantForAutofill="no" />
+            <EditText android:id="@+id/etRelayUrl" android:layout_width="match_parent" android:layout_height="44dp" android:background="@drawable/edittext_glass" android:hint="https://your-relay.onrender.com" android:textColorHint="#4DFFFFFF" android:textColor="@color/white" android:textSize="12sp" android:fontFamily="monospace" android:padding="12dp" android:inputType="textUri" android:singleLine="true" android:importantForAutofill="no" android:layout_marginBottom="10dp" />
+            <Button android:id="@+id/btnTestRelay" android:layout_width="match_parent" android:layout_height="40dp" android:text="TEST RELAY CONNECTION" android:background="@drawable/btn_glass" android:textColor="@color/cyan_primary" android:textSize="11sp" android:fontFamily="monospace" android:letterSpacing="0.1" />
         </LinearLayout>
 
         <!-- Agent Settings -->
@@ -61,5 +62,6 @@
         </LinearLayout>
 
         <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Auto-detect: AIza...→Gemini | sk-...→OpenAI | nvapi-...→NVIDIA" android:textColor="#33FFFFFF" android:textSize="10sp" android:fontFamily="monospace" android:lineSpacingExtra="3dp" />
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="MCP: Connect your AI client via the relay for remote control" android:textColor="#33FFFFFF" android:textSize="10sp" android:fontFamily="monospace" android:lineSpacingExtra="3dp" android:layout_marginTop="6dp" />
     </LinearLayout>
 </ScrollView>

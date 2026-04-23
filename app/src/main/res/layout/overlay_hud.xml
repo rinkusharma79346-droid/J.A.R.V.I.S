@@ -8,7 +8,10 @@
     android:paddingVertical="10dp"
     android:gravity="center_vertical">
     <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
-        <TextView android:id="@+id/hudStatus" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="JARVIS Active" android:textColor="@color/cyan_primary" android:textSize="11sp" android:fontFamily="monospace" android:textStyle="bold" android:maxLines="1" android:ellipsize="end" />
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
+            <TextView android:id="@+id/hudStatus" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="JARVIS Active" android:textColor="@color/cyan_primary" android:textSize="11sp" android:fontFamily="monospace" android:textStyle="bold" android:maxLines="1" android:ellipsize="end" />
+            <TextView android:id="@+id/hudRelay" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="" android:textColor="@color/green_accent" android:textSize="9sp" android:fontFamily="monospace" android:layout_marginStart="6dp" />
+        </LinearLayout>
         <TextView android:id="@+id/hudStep" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="" android:textColor="#66FFFFFF" android:textSize="9sp" android:fontFamily="monospace" />
     </LinearLayout>
     <Button android:id="@+id/btnKill" android:layout_width="wrap_content" android:layout_height="32dp" android:text="KILL" android:background="@drawable/btn_red" android:textColor="@color/white" android:textSize="10sp" android:fontFamily="monospace" android:textStyle="bold" android:paddingHorizontal="16dp" android:minWidth="64dp" />

@@ -53,10 +53,20 @@ class JarvisService : AccessibilityService() {
         Log.i(TAG, "JarvisService connected — ready")
         Toast.makeText(this, "JARVIS Service Active", Toast.LENGTH_SHORT).show()
 
-        // Initialize relay client
+        // Initialize relay client and auto-connect
         RelayClient.init(getSharedPreferences("jarvis_settings", MODE_PRIVATE), this)
         if (RelayClient.isEnabled()) {
             RelayClient.connect()
+            Log.i(TAG, "MCP Relay auto-connecting...")
+        } else {
+            // Auto-enable relay with default URL if not configured yet
+            val prefs = getSharedPreferences("jarvis_settings", MODE_PRIVATE)
+            val hasUrl = prefs.getString("relay_url", "")?.isNotBlank() == true
+            if (hasUrl) {
+                RelayClient.setEnabled(true)
+                RelayClient.connect()
+                Log.i(TAG, "MCP Relay auto-enabled and connecting...")
+            }
         }
     }
 
@@ -88,7 +98,9 @@ class JarvisService : AccessibilityService() {
 
         // Check if API key is configured
         val config = SettingsManager.getConfig(this)
-        if (config.apiKey.isBlank() && config.provider != "gemini") {
+        val hasKey = config.apiKey.isNotBlank() ||
+                (config.provider == "gemini") // Gemini has fallback key
+        if (!hasKey) {
             status.value = "Error: No API key configured. Go to Settings."
             Toast.makeText(this, "No API key! Open app Settings.", Toast.LENGTH_LONG).show()
             return
@@ -220,10 +232,11 @@ class JarvisService : AccessibilityService() {
                     // ─── ACTION-SPECIFIC DELAY ───
                     val delayMs = when (action.action) {
                         "TAP" -> actionDelay
+                        "LONG_PRESS" -> actionDelay + 400L
                         "SWIPE", "SCROLL" -> actionDelay + 400L
                         "TYPE" -> actionDelay - 200L
                         "OPEN_APP" -> 2500L
-                        "PRESS_BACK", "PRESS_HOME" -> actionDelay + 200L
+                        "PRESS_BACK", "PRESS_HOME", "PRESS_RECENTS" -> actionDelay + 200L
                         else -> actionDelay
                     }
                     delay(delayMs.coerceAtLeast(400))
@@ -424,8 +437,18 @@ class JarvisService : AccessibilityService() {
                     }
                 }
 
+                "LONG_PRESS" -> {
+                    val path = Path().apply { moveTo(action.x.toFloat(), action.y.toFloat()) }
+                    val gesture = GestureDescription.Builder()
+                        .addStroke(GestureDescription.StrokeDescription(path, 0, 600))
+                        .build()
+                    dispatchGesture(gesture, null, null)
+                    Log.d(TAG, "LONG_PRESS at (${action.x}, ${action.y})")
+                }
+
                 "PRESS_BACK" -> performGlobalAction(GLOBAL_ACTION_BACK)
                 "PRESS_HOME" -> performGlobalAction(GLOBAL_ACTION_HOME)
+                "PRESS_RECENTS" -> performGlobalAction(GLOBAL_ACTION_RECENTS)
                 else -> Log.w(TAG, "Unknown action: ${action.action}")
             }
         } catch (e: Exception) {

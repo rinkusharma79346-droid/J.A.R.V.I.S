@@ -19,6 +19,8 @@ object SettingsManager {
     private const val KEY_MAX_STEPS = "max_steps"
     private const val KEY_ACTION_DELAY = "action_delay"
 
+    const val DEFAULT_RELAY_URL = "https://j-a-r-v-i-s-ktlh.onrender.com"
+
     val GEMINI_MODELS = listOf("gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-pro", "gemini-1.5-flash")
     val OPENAI_MODELS = listOf("gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano")
     val NVIDIA_MODELS = listOf("nvidia/llama-3.1-nemotron-70b-instruct", "meta/llama-3.1-405b-instruct", "google/gemma-2-27b-it", "mistralai/mixtral-8x22b-instruct-v0.1")

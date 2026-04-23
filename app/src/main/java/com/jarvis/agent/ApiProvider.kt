@@ -29,12 +29,13 @@ You will be provided with the current user task, the step number, the screen UI 
 Determine the next SINGLE action to accomplish the task.
 OUTPUT FORMAT — respond with ONLY a JSON object:
 { "action": "TAP", "x": 540, "y": 960, "x2": 0, "y2": 0, "text": "", "direction": "", "app": "", "reason": "tapping the YouTube icon" }
-VALID ACTIONS: TAP, SWIPE, TYPE, SCROLL, OPEN_APP, PRESS_BACK, PRESS_HOME, DONE, FAIL
+VALID ACTIONS: TAP, LONG_PRESS, SWIPE, TYPE, SCROLL, OPEN_APP, PRESS_BACK, PRESS_HOME, PRESS_RECENTS, DONE, FAIL
 - TAP: provide x, y
+- LONG_PRESS: provide x, y (press and hold 600ms)
 - SWIPE/SCROLL: provide x, y (start) and x2, y2 (end)
 - TYPE: provide x, y (click first) and text (to type)
 - OPEN_APP: provide app (app name or package)
-- DONE/FAIL/PRESS_BACK/PRESS_HOME: only action + reason needed
+- DONE/FAIL/PRESS_BACK/PRESS_HOME/PRESS_RECENTS: only action + reason needed
 STRATEGY:
 1. Analyze the screenshot and UI tree to understand the current screen
 2. Use the action history to AVOID repeating the same action
@@ -89,7 +90,7 @@ class OpenAiProvider(private val apiKey: String, private val model: String = "gp
         private const val SYSTEM_PROMPT = """You are JARVIS, an autonomous Android agent.
 Return ONLY a JSON object for the next action:
 { "action": "TAP", "x": 540, "y": 960, "x2": 0, "y2": 0, "text": "", "direction": "", "app": "", "reason": "tapping search bar" }
-ACTIONS: TAP, SWIPE, TYPE, SCROLL, OPEN_APP, PRESS_BACK, PRESS_HOME, DONE, FAIL
+ACTIONS: TAP, LONG_PRESS, SWIPE, TYPE, SCROLL, OPEN_APP, PRESS_BACK, PRESS_HOME, PRESS_RECENTS, DONE, FAIL
 Use history to avoid repeats. If stuck, go BACK and try differently."""
     }
 
@@ -134,7 +135,7 @@ class NvidiaProvider(private val apiKey: String, private val model: String = "nv
     companion object { private const val TAG = "NvidiaProvider"; private const val BASE_URL = "https://integrate.api.nvidia.com/v1"
         private const val SYSTEM_PROMPT = """You are JARVIS, an autonomous Android agent. No screenshot — rely on UI tree.
 Return ONLY JSON: { "action": "TAP", "x": 540, "y": 960, "x2": 0, "y2": 0, "text": "", "direction": "", "app": "", "reason": "tapping button" }
-ACTIONS: TAP, SWIPE, TYPE, SCROLL, OPEN_APP, PRESS_BACK, PRESS_HOME, DONE, FAIL. Use UI tree coordinates. Use history to avoid repeats."""
+ACTIONS: TAP, LONG_PRESS, SWIPE, TYPE, SCROLL, OPEN_APP, PRESS_BACK, PRESS_HOME, PRESS_RECENTS, DONE, FAIL. Use UI tree coordinates. Use history to avoid repeats."""
     }
 
     override suspend fun getNextAction(request: AgentRequest): AgentAction = withContext(Dispatchers.IO) {

@@ -45,11 +45,41 @@ class MainActivity : AppCompatActivity() {
         val lastTask = memory.getLastTask()
         if (lastTask.isNotBlank()) binding.etTask.setText(lastTask)
 
+        // Observe status updates
         lifecycleScope.launch { JarvisService.status.collectLatest { binding.tvStatus.text = it; binding.tvStatus.alpha = 0f; binding.tvStatus.animate().alpha(1f).setDuration(300).start() } }
         lifecycleScope.launch { JarvisService.currentStep.collectLatest { binding.tvStep.text = if (it > 0) "STEP $it" else "IDLE" } }
         lifecycleScope.launch { JarvisService.currentAction.collectLatest { binding.tvAction.text = it; binding.tvAction.alpha = 0f; binding.tvAction.animate().alpha(1f).setDuration(200).start() } }
         lifecycleScope.launch { JarvisService.isRunning.collectLatest { r -> binding.btnExecute.isEnabled = !r; binding.btnStop.isEnabled = r; binding.btnExecute.alpha = if (r) 0.4f else 1f; binding.btnStop.alpha = if (r) 1f else 0.4f } }
-        lifecycleScope.launch { RelayClient.isConnected.collectLatest { c -> binding.tvRelayStatus.text = if (c) "● Relay" else "○ Relay"; binding.tvRelayStatus.setTextColor(getColor(if (c) R.color.green_accent else R.color.gray)) } }
+
+        // Relay status indicator
+        lifecycleScope.launch {
+            RelayClient.isConnected.collectLatest { connected ->
+                if (connected) {
+                    binding.tvRelayStatus.text = "● MCP"
+                    binding.tvRelayStatus.setTextColor(getColor(R.color.green_accent))
+                } else {
+                    binding.tvRelayStatus.text = "○ MCP"
+                    binding.tvRelayStatus.setTextColor(getColor(R.color.gray))
+                }
+            }
+        }
+        lifecycleScope.launch {
+            RelayClient.relayStatus.collectLatest { status ->
+                if (!RelayClient.isConnected.value) {
+                    binding.tvRelayDetail.text = status
+                    binding.tvRelayDetail.setTextColor(getColor(R.color.gray))
+                } else {
+                    val host = RelayClient.getRelayUrl()
+                        .removePrefix("https://")
+                        .removePrefix("http://")
+                        .removePrefix("wss://")
+                        .removePrefix("ws://")
+                    binding.tvRelayDetail.text = host
+                    binding.tvRelayDetail.setTextColor(getColor(R.color.green_accent))
+                }
+            }
+        }
+
         updateApiStatus()
     }
 
