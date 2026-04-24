@@ -376,6 +376,7 @@ class JarvisService : AccessibilityService() {
                     "PRESS_RECENTS" -> performGlobalAction(GLOBAL_ACTION_RECENTS)
                     "OPEN_APP" -> executeAction(sa.toAgentAction().copy(action = "OPEN_APP"))
                     "WAIT" -> { /* just delay */ }
+                    else -> Log.w(TAG, "Unknown sequence action: ${sa.action}")
                 }
             }
 
@@ -633,14 +634,18 @@ class JarvisService : AccessibilityService() {
         }
 
         if (!searchEnter(rootNode)) {
-            // Fallback: use IME action by finding the focused node and performing ACTION_IME_ACTION
-            val focused = findFocusedNode(rootNode)
-            if (focused != null) {
-                focused.performAction(AccessibilityNodeInfo.ACTION_IME_ACTION)
-                Log.d(TAG, "Pressed Enter via IME ACTION")
-            } else {
-                Log.w(TAG, "Could not find Enter key or focused node")
-            }
+            // Fallback: use dispatchGesture to press "Enter" on the keyboard
+            // Find the bottom-right area of the screen where Enter key usually is
+            val displayMetrics = resources.displayMetrics
+            val enterX = (displayMetrics.widthPixels * 0.85).toInt()
+            val enterY = (displayMetrics.heightPixels * 0.92).toInt()
+
+            val path = Path().apply { moveTo(enterX.toFloat(), enterY.toFloat()) }
+            val gesture = GestureDescription.Builder()
+                .addStroke(GestureDescription.StrokeDescription(path, 0, 80))
+                .build()
+            dispatchGesture(gesture, null, null)
+            Log.d(TAG, "Pressed Enter via gesture at ($enterX, $enterY)")
         }
     }
 
