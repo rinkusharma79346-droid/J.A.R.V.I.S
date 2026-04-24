@@ -3,11 +3,9 @@ package com.jarvis.agent
 import android.content.Intent
 import android.content.SharedPreferences
 import android.os.Build
-import android.util.Base64
 import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.JsonObject
-import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import okhttp3.*

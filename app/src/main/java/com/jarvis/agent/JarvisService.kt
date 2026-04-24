@@ -260,7 +260,7 @@ class JarvisService : AccessibilityService() {
 
     private suspend fun captureScreen(): String? = withContext(Dispatchers.Main) {
         try {
-            suspendCancellableCoroutine { cont ->
+            suspendCancellableCoroutine<String?> { cont ->
                 takeScreenshot(Display.DEFAULT_DISPLAY, mainExecutor, object : TakeScreenshotCallback {
                     override fun onSuccess(result: ScreenshotResult) {
                         try {
@@ -269,7 +269,7 @@ class JarvisService : AccessibilityService() {
                             }
                             if (hwBitmap == null) {
                                 Log.e(TAG, "wrapHardwareBuffer returned null")
-                                cont.resume(null) {}
+                                cont.resume(null)
                                 return
                             }
 
@@ -279,7 +279,7 @@ class JarvisService : AccessibilityService() {
 
                             if (bitmap == null) {
                                 Log.e(TAG, "Failed to copy hardware bitmap")
-                                cont.resume(null) {}
+                                cont.resume(null)
                                 return
                             }
 
@@ -294,16 +294,16 @@ class JarvisService : AccessibilityService() {
                             bitmap.recycle()
                             if (scaled !== bitmap) scaled.recycle()
 
-                            cont.resume(base64) {}
+                            cont.resume(base64)
                         } catch (e: Exception) {
                             Log.e(TAG, "Screenshot processing failed: ${e.message}")
-                            cont.resume(null) {}
+                            cont.resume(null)
                         }
                     }
 
                     override fun onFailure(errorCode: Int) {
                         Log.e(TAG, "Screenshot failed with code: $errorCode")
-                        cont.resume(null) {}
+                        cont.resume(null)
                     }
                 })
             }
@@ -331,7 +331,9 @@ class JarvisService : AccessibilityService() {
     suspend fun autoCapture(): Pair<String?, String?> {
         delay(400) // Wait for UI to settle after action
         val b64 = captureScreen()
-        val uiTree = try { parseUITree(rootInActiveWindow) } catch (e: Exception) { null }
+        val uiTree = withContext(Dispatchers.Main) {
+            try { parseUITree(rootInActiveWindow) } catch (e: Exception) { null }
+        }
         return Pair(b64, uiTree)
     }
 
