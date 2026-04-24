@@ -724,30 +724,33 @@ class JarvisService : AccessibilityService() {
                         .build()
                     dispatchGesture(tapGesture, null, null)
 
-                    Thread.sleep(400)
+                    Thread.sleep(500)
 
-                    // Step 2: Try SET_TEXT first (works for standard EditText)
                     val node = findNodeAt(rootInActiveWindow, action.x, action.y)
                     var typed = false
 
-                    if (node != null && node.isEditable) {
-                        // Try SET_TEXT
-                        val args = Bundle().apply {
-                            putCharSequence(
-                                AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
-                                action.text
-                            )
-                        }
-                        val result = node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
-                        if (result) {
-                            typed = true
-                            Log.d(TAG, "TYPE via SET_TEXT: '${action.text}' at (${action.x},${action.y})")
-                        }
-                    }
+                    // Detect if this is a WebView/Chrome field (React apps need PASTE, not SET_TEXT)
+                    val isWebViewField = isInsideWebView(node)
 
-                    // Step 3: If SET_TEXT failed, use clipboard paste (works with Chrome URL bar)
-                    if (!typed) {
-                        val focusedNode = findFocusedNode(rootInActiveWindow)
+                    if (isWebViewField) {
+                        // ── WebView / Chrome: Use clipboard PASTE ──
+                        // SET_TEXT doesn't trigger React's onChange, but PASTE does.
+                        val focusedNode = findFocusedNode(rootInActiveWindow) ?: node
+
+                        // Clear existing text: select all then delete
+                        if (focusedNode != null) {
+                            focusedNode.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, Bundle().apply {
+                                putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, 0)
+                                putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, focusedNode.text?.length ?: 0)
+                            })
+                            Thread.sleep(100)
+                            focusedNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, Bundle().apply {
+                                putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, "")
+                            })
+                            Thread.sleep(150)
+                        }
+
+                        // Copy text to clipboard and PASTE (triggers React onChange)
                         val clip = android.content.ClipData.newPlainText("jarvis", action.text)
                         (getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager)
                             .setPrimaryClip(clip)
@@ -757,14 +760,63 @@ class JarvisService : AccessibilityService() {
                             val pasteResult = targetNode.performAction(AccessibilityNodeInfo.ACTION_PASTE)
                             if (pasteResult) {
                                 typed = true
-                                Log.d(TAG, "TYPE via PASTE: '${action.text}' at (${action.x},${action.y})")
+                                Log.d(TAG, "TYPE via PASTE (WebView): '${action.text.take(50)}' at (${action.x},${action.y})")
                             }
                         }
 
-                        // Final fallback: try PASTE on the node at position
+                        // Fallback: try PASTE on the node at position
                         if (!typed && node != null && node !== targetNode) {
-                            node.performAction(AccessibilityNodeInfo.ACTION_PASTE)
-                            Log.d(TAG, "TYPE via PASTE (fallback): '${action.text}' at (${action.x},${action.y})")
+                            val pasteResult = node.performAction(AccessibilityNodeInfo.ACTION_PASTE)
+                            if (pasteResult) {
+                                typed = true
+                                Log.d(TAG, "TYPE via PASTE (fallback): '${action.text.take(50)}' at (${action.x},${action.y})")
+                            }
+                        }
+
+                        // Last resort: SET_TEXT (won't trigger React, but at least sets the value)
+                        if (!typed && node != null && node.isEditable) {
+                            val args = Bundle().apply {
+                                putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, action.text)
+                            }
+                            val result = node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+                            if (result) {
+                                typed = true
+                                Log.d(TAG, "TYPE via SET_TEXT (WebView last resort): '${action.text.take(50)}' at (${action.x},${action.y})")
+                            }
+                        }
+                    } else {
+                        // ── Native Android: Use SET_TEXT first ──
+                        if (node != null && node.isEditable) {
+                            val args = Bundle().apply {
+                                putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, action.text)
+                            }
+                            val result = node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+                            if (result) {
+                                typed = true
+                                Log.d(TAG, "TYPE via SET_TEXT: '${action.text.take(50)}' at (${action.x},${action.y})")
+                            }
+                        }
+
+                        // Fallback: clipboard paste
+                        if (!typed) {
+                            val focusedNode = findFocusedNode(rootInActiveWindow)
+                            val clip = android.content.ClipData.newPlainText("jarvis", action.text)
+                            (getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager)
+                                .setPrimaryClip(clip)
+
+                            val targetNode = focusedNode ?: node
+                            if (targetNode != null) {
+                                val pasteResult = targetNode.performAction(AccessibilityNodeInfo.ACTION_PASTE)
+                                if (pasteResult) {
+                                    typed = true
+                                    Log.d(TAG, "TYPE via PASTE: '${action.text.take(50)}' at (${action.x},${action.y})")
+                                }
+                            }
+
+                            if (!typed && node != null && node !== targetNode) {
+                                node.performAction(AccessibilityNodeInfo.ACTION_PASTE)
+                                Log.d(TAG, "TYPE via PASTE (fallback): '${action.text.take(50)}' at (${action.x},${action.y})")
+                            }
                         }
                     }
 
@@ -819,5 +871,23 @@ class JarvisService : AccessibilityService() {
             if (child != null) return child
         }
         return if (root.isEditable || root.isClickable) root else null
+    }
+
+    /**
+     * Check if a node is inside a WebView (Chrome/browser).
+     * WebView fields need PASTE instead of SET_TEXT because SET_TEXT
+     * doesn't trigger React's synthetic onChange events.
+     */
+    private fun isInsideWebView(node: AccessibilityNodeInfo?): Boolean {
+        if (node == null) return false
+        var current = node.parent
+        while (current != null) {
+            val className = current.className?.toString() ?: ""
+            if (className == "android.webkit.WebView" || className.contains("WebView")) {
+                return true
+            }
+            current = current.parent
+        }
+        return false
     }
 }
