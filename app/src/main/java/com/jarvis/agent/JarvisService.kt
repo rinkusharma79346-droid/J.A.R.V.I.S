@@ -269,7 +269,7 @@ class JarvisService : AccessibilityService() {
                             }
                             if (hwBitmap == null) {
                                 Log.e(TAG, "wrapHardwareBuffer returned null")
-                                cont.resume(null)
+                                cont.resumeWith(Result.success(null))
                                 return
                             }
 
@@ -279,7 +279,7 @@ class JarvisService : AccessibilityService() {
 
                             if (bitmap == null) {
                                 Log.e(TAG, "Failed to copy hardware bitmap")
-                                cont.resume(null)
+                                cont.resumeWith(Result.success(null))
                                 return
                             }
 
@@ -294,16 +294,16 @@ class JarvisService : AccessibilityService() {
                             bitmap.recycle()
                             if (scaled !== bitmap) scaled.recycle()
 
-                            cont.resume(base64)
+                            cont.resumeWith(Result.success(base64))
                         } catch (e: Exception) {
                             Log.e(TAG, "Screenshot processing failed: ${e.message}")
-                            cont.resume(null)
+                            cont.resumeWith(Result.success(null))
                         }
                     }
 
                     override fun onFailure(errorCode: Int) {
                         Log.e(TAG, "Screenshot failed with code: $errorCode")
-                        cont.resume(null)
+                        cont.resumeWith(Result.success(null))
                     }
                 })
             }
