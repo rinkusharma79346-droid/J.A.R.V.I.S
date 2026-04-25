@@ -1,7 +1,7 @@
 {
   "name": "jarvis-relay-server",
-  "version": "3.0.0",
-  "description": "JARVIS MCP Relay Server — HTTP long-polling based, bulletproof on Render free tier",
+  "version": "4.1.0",
+  "description": "JARVIS MCP Relay Server — HTTP long-polling + MCP SSE + Streamable HTTP for Claude.ai",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -13,6 +13,7 @@
   "dependencies": {
     "express": "^4.18.2",
     "cors": "^2.8.5",
-    "uuid": "^9.0.0"
+    "uuid": "^9.0.0",
+    "@modelcontextprotocol/sdk": "^1.29.0"
   }
 }
