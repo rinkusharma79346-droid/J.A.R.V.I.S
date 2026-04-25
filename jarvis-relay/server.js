@@ -1,5 +1,5 @@
 /**
- * JARVIS MCP Relay Server v4.1 — HTTP Long-Polling + MCP SSE + Streamable HTTP
+ * JARVIS MCP Relay Server v4.2 — HTTP Long-Polling + MCP SSE + Streamable HTTP
  *
  * Supports Claude.ai remote MCP connections via:
  *   - SSE transport: GET /sse + POST /messages (legacy, widely supported)
@@ -33,8 +33,8 @@ const responses = new Map();
 const statusUpdates = new Map();
 
 const POLL_TIMEOUT_MS = 25000;
-const CLEANUP_INTERVAL_MS = 45000;
-const DEVICE_STALE_MS = 90000;
+const CLEANUP_INTERVAL_MS = 60000;     // Clean stale data every 60s
+const DEVICE_STALE_MS = 300000;     // 5 minutes (was 90s — too aggressive for Render restarts)
 const RESPONSE_TTL_MS = 300000;
 const COMMAND_TTL_MS = 120000;
 
@@ -44,7 +44,7 @@ const startTime = Date.now();
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
-    version: '4.1.0',
+    version: '4.2.0',
     protocol: 'HTTP Long-Polling + MCP SSE + Streamable HTTP',
     devices: devices.size,
     pendingResponses: responses.size,
@@ -350,7 +350,7 @@ setInterval(() => {
 app.get('/', (req, res) => {
   res.json({
     name: 'JARVIS MCP Relay Server',
-    version: '4.1.0',
+    version: '4.2.0',
     protocol: 'HTTP Long-Polling + MCP SSE + Streamable HTTP',
     features: ['auto-capture', 'sequence-commands', 'chrome-url-macro', 'mcp-sse', 'mcp-streamable-http'],
     endpoints: {
@@ -556,7 +556,7 @@ try {
   // ─── Helper: Create a new MCP server instance ───
   function createMcpServer() {
     const server = new McpServer(
-      { name: 'jarvis-mcp-server', version: '4.1.0' },
+      { name: 'jarvis-mcp-server', version: '4.2.0' },
       { capabilities: { tools: {} } }
     );
 
@@ -668,22 +668,36 @@ try {
   async function mcpSendCommand(type, params = {}) {
     const requestId = crypto.randomUUID();
 
+    // Find best device: prefer connected+active, then any seen in last 5 min, then any at all
     let activeDevice = null;
+    let fallbackDevice = null;
+    let anyDevice = null;
+
     for (const [id, dev] of devices) {
-      if (dev.connected && Date.now() - dev.lastSeen < DEVICE_STALE_MS) {
-        activeDevice = { deviceId: id, ...dev };
-        break;
+      if (!anyDevice) anyDevice = { deviceId: id, ...dev };
+      if (Date.now() - dev.lastSeen < DEVICE_STALE_MS) {
+        if (!fallbackDevice) fallbackDevice = { deviceId: id, ...dev };
+        if (dev.connected) {
+          activeDevice = { deviceId: id, ...dev };
+          break;
+        }
       }
     }
 
-    if (!activeDevice) {
+    const targetDevice = activeDevice || fallbackDevice || anyDevice;
+
+    if (!targetDevice) {
       return {
-        content: [{ type: 'text', text: 'No JARVIS device connected. Open the JARVIS app and enable MCP Relay in Settings.' }],
+        content: [{ type: 'text', text: 'No JARVIS device has ever connected to this relay server. Open the JARVIS app on your phone and enable MCP Relay in Settings.' }],
         isError: true,
       };
     }
 
-    const device = devices.get(activeDevice.deviceId);
+    const deviceId = targetDevice.deviceId;
+    const device = devices.get(deviceId);
+    const isStale = Date.now() - device.lastSeen > DEVICE_STALE_MS;
+
+    // Queue the command regardless — device will pick it up when it reconnects
     device.pendingCommands.push({
       requestId,
       type,
@@ -691,9 +705,11 @@ try {
       timestamp: Date.now()
     });
 
-    console.log(`[MCP] ${type} → ${activeDevice.deviceId} (requestId: ${requestId})`);
+    const statusLabel = isStale ? 'STALE (waiting for reconnect)' : (device.connected ? 'ONLINE' : 'POLLING');
+    console.log(`[MCP] ${type} → ${deviceId} [${statusLabel}] (requestId: ${requestId})`);
 
-    const maxWait = 30000;
+    // Wait for response — longer timeout to survive Render cold starts + device reconnect
+    const maxWait = 60000; // 60s (was 30s)
     const startTime = Date.now();
     while (Date.now() - startTime < maxWait) {
       const resp = responses.get(requestId);
@@ -705,7 +721,7 @@ try {
     }
 
     return {
-      content: [{ type: 'text', text: 'Timeout waiting for device response' }],
+      content: [{ type: 'text', text: `Timeout: Device ${deviceId} did not respond in 60s. ${isStale ? 'Device appears OFFLINE — open the JARVIS app and ensure MCP Relay is enabled.' : 'Device was connected but did not respond.'}` }],
       isError: true,
     };
   }
@@ -880,7 +896,7 @@ try {
 // ─── Start Server ───
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`╔══════════════════════════════════════════════╗`);
-  console.log(`║   JARVIS MCP Relay Server v4.1               ║`);
+  console.log(`║   JARVIS MCP Relay Server v4.2               ║`);
   console.log(`║   HTTP Long-Polling + MCP SSE + Streamable   ║`);
   console.log(`║   Claude.ai: /sse or /mcp endpoint           ║`);
   console.log(`║   Port: ${PORT}                                 ║`);

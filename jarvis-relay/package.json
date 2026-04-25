@@ -1,6 +1,6 @@
 {
   "name": "jarvis-relay-server",
-  "version": "4.1.0",
+  "version": "4.2.0",
   "description": "JARVIS MCP Relay Server — HTTP long-polling + MCP SSE + Streamable HTTP for Claude.ai",
   "main": "server.js",
   "scripts": {
