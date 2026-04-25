@@ -15,14 +15,16 @@ import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 /**
- * JARVIS MCP Relay Client v3.0 — HTTP Long-Polling
+ * JARVIS MCP Relay Client v4.0 — HTTP Long-Polling
  *
- * Key improvements for speed:
+ * Key improvements for speed and reliability:
  *   - Auto-capture: Every action response includes screenshot + UI tree
  *   - Sequence commands: Execute multiple actions with one round-trip
- *   - Chrome URL macro: Open URL in Chrome with zero round-trips during execution
+ *   - Chrome URL macro: Open URL in Chrome with zero round-trips
  *   - Enhanced type_text: Uses clipboard paste for Chrome URL bar compatibility
  *   - PiP overlay: Shows when MCP commands are being processed
+ *   - v4.0: Faster auto-hide, exponential backoff reconnect, health checks,
+ *           explicit mcpCommandFinished() after each handler
  *
  * Relay endpoints:
  *   POST /api/register   → register device
@@ -30,6 +32,7 @@ import java.util.concurrent.TimeUnit
  *   POST /api/status     → push status updates
  *   POST /api/response   → push command responses
  *   GET  /api/warmup     → keep server alive
+ *   GET  /api/health     → connection health check
  */
 object RelayClient {
 
@@ -39,8 +42,10 @@ object RelayClient {
     private const val DEFAULT_RELAY_URL = "https://j-a-r-v-i-s-ktlh.onrender.com"
     private const val RECONNECT_BASE_MS = 3000L
     private const val RECONNECT_MAX_MS = 60000L
-    private const val STATUS_PUSH_INTERVAL_MS = 3000L
+    private const val STATUS_PUSH_INTERVAL_MS = 5000L
     private const val WARMUP_INTERVAL_MS = 12 * 60 * 1000L
+    private const val HEALTH_CHECK_INTERVAL_MS = 30_000L
+    private const val MCP_AUTO_RESET_MS = 5_000L
 
     val isConnected = MutableStateFlow(false)
     val relayStatus = MutableStateFlow("Disconnected")
@@ -62,7 +67,9 @@ object RelayClient {
     private var pollJob: Job? = null
     private var statusPushJob: Job? = null
     private var warmupJob: Job? = null
+    private var healthCheckJob: Job? = null
     private var consecutiveErrors = 0
+    private var reconnectAttempt = 0
     private var registered = false
     private var mcpAutoResetJob: Job? = null
 
@@ -95,6 +102,7 @@ object RelayClient {
         disconnect()
         registered = false
         consecutiveErrors = 0
+        reconnectAttempt = 0
         isConnected.value = true
         relayStatus.value = "Connecting..."
 
@@ -112,6 +120,7 @@ object RelayClient {
 
             startStatusPush()
             startWarmupPings()
+            startHealthCheck()
             pollLoop()
         }
     }
@@ -123,22 +132,34 @@ object RelayClient {
         statusPushJob = null
         warmupJob?.cancel()
         warmupJob = null
+        healthCheckJob?.cancel()
+        healthCheckJob = null
         mcpAutoResetJob?.cancel()
         mcpAutoResetJob = null
         isConnected.value = false
         relayStatus.value = "Disconnected"
         registered = false
         consecutiveErrors = 0
+        reconnectAttempt = 0
         mcpActive.value = false
     }
 
-    // ─── Auto-reset MCP active state after 10s of no commands ───
+    // ─── Auto-reset MCP active state after 5s of no commands ───
     private fun scheduleMcpAutoReset() {
         mcpAutoResetJob?.cancel()
         mcpAutoResetJob = scope.launch {
-            delay(10_000L)
+            delay(MCP_AUTO_RESET_MS)
             mcpActive.value = false
         }
+    }
+
+    /**
+     * Called after each MCP command handler completes.
+     * Tells HUDService to schedule faster auto-hide.
+     */
+    fun mcpCommandFinished() {
+        HUDService.mcpCommandDone()
+        Log.d(TAG, "mcpCommandFinished: signaled HUD for auto-hide")
     }
 
     // ─── Registration ───
@@ -205,12 +226,42 @@ object RelayClient {
         }
     }
 
+    // ─── Health Check ───
+    // Periodic health check every 30s while connected
+    private fun startHealthCheck() {
+        healthCheckJob?.cancel()
+        healthCheckJob = scope.launch {
+            while (currentCoroutineContext().isActive && isEnabled()) {
+                delay(HEALTH_CHECK_INTERVAL_MS)
+                try {
+                    val request = Request.Builder()
+                        .url("${getRelayUrl()}/api/health")
+                        .get()
+                        .build()
+                    val response = client.newCall(request).execute()
+                    if (response.isSuccessful) {
+                        Log.d(TAG, "Health check OK")
+                        consecutiveErrors = 0
+                        reconnectAttempt = 0
+                    } else {
+                        Log.w(TAG, "Health check failed: HTTP ${response.code}")
+                    }
+                    response.close()
+                } catch (e: Exception) {
+                    Log.w(TAG, "Health check error: ${e.message}")
+                }
+            }
+        }
+    }
+
     // ─── Poll Loop ───
     private suspend fun pollLoop() {
         while (currentCoroutineContext().isActive && isEnabled()) {
             try {
                 val commands = pollForCommands()
+                // Reset consecutive errors on every successful poll
                 consecutiveErrors = 0
+                reconnectAttempt = 0
 
                 for (cmd in commands) {
                     try {
@@ -228,19 +279,21 @@ object RelayClient {
                 Log.w(TAG, "Poll failed ($consecutiveErrors errors), retrying in ${delayMs}ms: ${e.message}")
                 relayStatus.value = "Reconnecting in ${delayMs / 1000}s..."
 
-                if (consecutiveErrors >= 10) {
+                // Re-register after 5 consecutive errors (was 10)
+                if (consecutiveErrors >= 5) {
                     Log.w(TAG, "Too many errors, re-registering...")
                     registered = registerDeviceWithRetry()
                     if (registered) {
                         relayStatus.value = "Connected (HTTP polling)"
+                        consecutiveErrors = 0
                     }
-                    consecutiveErrors = 0
                 }
 
                 delay(delayMs)
             }
         }
 
+        // Poll loop ended — always try to reconnect if still enabled
         if (isEnabled()) {
             isConnected.value = false
             relayStatus.value = "Poll loop ended — reconnecting..."
@@ -306,7 +359,7 @@ object RelayClient {
             HUDService.showForMcp(service)
         }
 
-        // Auto-reset mcpActive after 10s of no new commands
+        // Auto-reset mcpActive after 5s of no new commands
         scheduleMcpAutoReset()
 
         when (type) {
@@ -333,11 +386,15 @@ object RelayClient {
             "status" -> handleStatus(requestId)
             "kill" -> handleKill(requestId)
             "list_apps" -> handleListApps(requestId)
-            "ping" -> sendResponse(requestId, mapOf("type" to "pong", "deviceId" to getDeviceId()))
+            "ping" -> {
+                sendResponse(requestId, mapOf("type" to "pong", "deviceId" to getDeviceId()))
+                mcpCommandFinished()
+            }
 
             else -> {
                 Log.w(TAG, "Unknown command type: $type")
                 sendResponse(requestId, mapOf("type" to "error", "message" to "Unknown command: $type", "deviceId" to getDeviceId()))
+                mcpCommandFinished()
             }
         }
     }
@@ -351,6 +408,7 @@ object RelayClient {
         val y = cmd.get("y")?.asInt ?: 0
         val service = serviceRef ?: run {
             sendResponse(requestId, mapOf("type" to "error", "message" to "Service not available"))
+            mcpCommandFinished()
             return
         }
 
@@ -371,7 +429,7 @@ object RelayClient {
                     "uiTree" to (uiTree ?: "")
                 ))
             } else {
-                delay(300)
+                delay(150)
                 sendResponse(requestId, mapOf(
                     "type" to "tap_done",
                     "x" to x, "y" to y,
@@ -380,6 +438,7 @@ object RelayClient {
                 ))
             }
             mcpLastAction.value = "tap($x,$y)"
+            mcpCommandFinished()
         }
     }
 
@@ -391,6 +450,7 @@ object RelayClient {
         val duration = cmd.get("duration")?.asLong ?: 400L
         val service = serviceRef ?: run {
             sendResponse(requestId, mapOf("type" to "error", "message" to "Service not available"))
+            mcpCommandFinished()
             return
         }
 
@@ -420,6 +480,7 @@ object RelayClient {
                 ))
             }
             mcpLastAction.value = "swipe"
+            mcpCommandFinished()
         }
     }
 
@@ -428,6 +489,7 @@ object RelayClient {
         val y = cmd.get("y")?.asInt ?: 0
         val service = serviceRef ?: run {
             sendResponse(requestId, mapOf("type" to "error", "message" to "Service not available"))
+            mcpCommandFinished()
             return
         }
 
@@ -448,7 +510,7 @@ object RelayClient {
                     "uiTree" to (uiTree ?: "")
                 ))
             } else {
-                delay(800)
+                delay(600)
                 sendResponse(requestId, mapOf(
                     "type" to "long_press_done",
                     "x" to x, "y" to y,
@@ -457,6 +519,7 @@ object RelayClient {
                 ))
             }
             mcpLastAction.value = "long_press($x,$y)"
+            mcpCommandFinished()
         }
     }
 
@@ -466,6 +529,7 @@ object RelayClient {
         val text = cmd.get("text")?.asString ?: ""
         val service = serviceRef ?: run {
             sendResponse(requestId, mapOf("type" to "error", "message" to "Service not available"))
+            mcpCommandFinished()
             return
         }
 
@@ -486,7 +550,7 @@ object RelayClient {
                     "uiTree" to (uiTree ?: "")
                 ))
             } else {
-                delay(500)
+                delay(300)
                 sendResponse(requestId, mapOf(
                     "type" to "type_done",
                     "x" to x, "y" to y, "text" to text,
@@ -495,12 +559,14 @@ object RelayClient {
                 ))
             }
             mcpLastAction.value = "type: ${text.take(20)}"
+            mcpCommandFinished()
         }
     }
 
     private fun handlePressBack(requestId: String, capture: Boolean) {
         val service = serviceRef ?: run {
             sendResponse(requestId, mapOf("type" to "error", "message" to "Service not available"))
+            mcpCommandFinished()
             return
         }
 
@@ -520,7 +586,7 @@ object RelayClient {
                     "uiTree" to (uiTree ?: "")
                 ))
             } else {
-                delay(300)
+                delay(150)
                 sendResponse(requestId, mapOf(
                     "type" to "press_back_done",
                     "success" to true,
@@ -528,12 +594,14 @@ object RelayClient {
                 ))
             }
             mcpLastAction.value = "press_back"
+            mcpCommandFinished()
         }
     }
 
     private fun handlePressHome(requestId: String, capture: Boolean) {
         val service = serviceRef ?: run {
             sendResponse(requestId, mapOf("type" to "error", "message" to "Service not available"))
+            mcpCommandFinished()
             return
         }
 
@@ -553,7 +621,7 @@ object RelayClient {
                     "uiTree" to (uiTree ?: "")
                 ))
             } else {
-                delay(300)
+                delay(150)
                 sendResponse(requestId, mapOf(
                     "type" to "press_home_done",
                     "success" to true,
@@ -561,12 +629,14 @@ object RelayClient {
                 ))
             }
             mcpLastAction.value = "press_home"
+            mcpCommandFinished()
         }
     }
 
     private fun handlePressRecents(requestId: String, capture: Boolean) {
         val service = serviceRef ?: run {
             sendResponse(requestId, mapOf("type" to "error", "message" to "Service not available"))
+            mcpCommandFinished()
             return
         }
 
@@ -586,7 +656,7 @@ object RelayClient {
                     "uiTree" to (uiTree ?: "")
                 ))
             } else {
-                delay(300)
+                delay(150)
                 sendResponse(requestId, mapOf(
                     "type" to "press_recents_done",
                     "success" to true,
@@ -594,6 +664,7 @@ object RelayClient {
                 ))
             }
             mcpLastAction.value = "press_recents"
+            mcpCommandFinished()
         }
     }
 
@@ -601,6 +672,7 @@ object RelayClient {
         val app = cmd.get("app")?.asString ?: ""
         val service = serviceRef ?: run {
             sendResponse(requestId, mapOf("type" to "error", "message" to "Service not available"))
+            mcpCommandFinished()
             return
         }
 
@@ -610,8 +682,8 @@ object RelayClient {
             }
 
             if (capture) {
-                // Wait longer for app to open
-                delay(2000)
+                // Wait for app to open
+                delay(1500)
                 val (b64, uiTree) = service.autoCapture()
                 sendResponse(requestId, mapOf(
                     "type" to "open_app_done",
@@ -623,7 +695,7 @@ object RelayClient {
                     "uiTree" to (uiTree ?: "")
                 ))
             } else {
-                delay(2000)
+                delay(1500)
                 sendResponse(requestId, mapOf(
                     "type" to "open_app_done",
                     "app" to app,
@@ -632,6 +704,7 @@ object RelayClient {
                 ))
             }
             mcpLastAction.value = "open_app: $app"
+            mcpCommandFinished()
         }
     }
 
@@ -639,6 +712,7 @@ object RelayClient {
         val url = cmd.get("url")?.asString ?: ""
         val service = serviceRef ?: run {
             sendResponse(requestId, mapOf("type" to "error", "message" to "Service not available"))
+            mcpCommandFinished()
             return
         }
 
@@ -684,6 +758,7 @@ object RelayClient {
                 ))
             }
             mcpLastAction.value = "open_url: ${url.take(30)}"
+            mcpCommandFinished()
         }
     }
 
@@ -694,11 +769,13 @@ object RelayClient {
     private fun handleSequence(cmd: JsonObject, requestId: String) {
         val service = serviceRef ?: run {
             sendResponse(requestId, mapOf("type" to "error", "message" to "Service not available"))
+            mcpCommandFinished()
             return
         }
 
         val actionsArray = cmd.getAsJsonArray("actions") ?: run {
             sendResponse(requestId, mapOf("type" to "error", "message" to "Missing actions array"))
+            mcpCommandFinished()
             return
         }
 
@@ -724,6 +801,7 @@ object RelayClient {
 
         if (actions.isEmpty()) {
             sendResponse(requestId, mapOf("type" to "error", "message" to "Empty actions array"))
+            mcpCommandFinished()
             return
         }
 
@@ -744,6 +822,7 @@ object RelayClient {
                 "uiTree" to (uiTree ?: "")
             ))
             mcpLastAction.value = "sequence_done"
+            mcpCommandFinished()
         }
     }
 
@@ -756,10 +835,12 @@ object RelayClient {
         val url = cmd.get("url")?.asString ?: ""
         if (url.isBlank()) {
             sendResponse(requestId, mapOf("type" to "error", "message" to "URL is required"))
+            mcpCommandFinished()
             return
         }
         val service = serviceRef ?: run {
             sendResponse(requestId, mapOf("type" to "error", "message" to "Service not available"))
+            mcpCommandFinished()
             return
         }
 
@@ -777,6 +858,7 @@ object RelayClient {
                 "uiTree" to (uiTree ?: "")
             ))
             mcpLastAction.value = "chrome_url_done"
+            mcpCommandFinished()
         }
     }
 
@@ -787,6 +869,7 @@ object RelayClient {
     private fun handleUiTree(requestId: String) {
         val service = serviceRef ?: run {
             sendResponse(requestId, mapOf("type" to "error", "message" to "Service not available"))
+            mcpCommandFinished()
             return
         }
 
@@ -799,12 +882,14 @@ object RelayClient {
                 "uiTree" to (uiTree ?: ""),
                 "deviceId" to getDeviceId()
             ))
+            mcpCommandFinished()
         }
     }
 
     private fun handleScreenshotAndUi(requestId: String) {
         val service = serviceRef ?: run {
             sendResponse(requestId, mapOf("type" to "error", "message" to "Service not available"))
+            mcpCommandFinished()
             return
         }
 
@@ -823,6 +908,7 @@ object RelayClient {
                 "uiTree" to (uiTree ?: ""),
                 "deviceId" to getDeviceId()
             ))
+            mcpCommandFinished()
         }
     }
 
@@ -830,6 +916,7 @@ object RelayClient {
         scope.launch {
             val service = serviceRef ?: run {
                 sendResponse(requestId, mapOf("type" to "error", "message" to "Service not available"))
+                mcpCommandFinished()
                 return@launch
             }
 
@@ -852,6 +939,7 @@ object RelayClient {
                     "deviceId" to getDeviceId()
                 ))
             }
+            mcpCommandFinished()
         }
     }
 
@@ -899,6 +987,7 @@ object RelayClient {
                 "action" to JarvisService.currentAction.value,
                 "deviceId" to getDeviceId()
             ))
+            mcpCommandFinished()
         }
     }
 
@@ -915,6 +1004,7 @@ object RelayClient {
             "model" to config.model,
             "deviceId" to getDeviceId()
         ))
+        mcpCommandFinished()
     }
 
     private fun handleKill(requestId: String) {
@@ -924,11 +1014,13 @@ object RelayClient {
             "message" to "Task killed",
             "deviceId" to getDeviceId()
         ))
+        mcpCommandFinished()
     }
 
     private fun handleListApps(requestId: String) {
         val service = serviceRef ?: run {
             sendResponse(requestId, mapOf("type" to "error", "message" to "Service not available"))
+            mcpCommandFinished()
             return
         }
 
@@ -944,6 +1036,7 @@ object RelayClient {
             "count" to apps.size,
             "deviceId" to getDeviceId()
         ))
+        mcpCommandFinished()
     }
 
     // ─── Send Response ───
@@ -1016,10 +1109,15 @@ object RelayClient {
         }
     }
 
-    // ─── Reconnect ───
+    // ─── Reconnect with exponential backoff ───
     private fun scheduleReconnect() {
+        reconnectAttempt++
+        val delayMs = (RECONNECT_BASE_MS * (1L shl (reconnectAttempt.coerceAtMost(5) - 1)))
+            .coerceIn(RECONNECT_BASE_MS, RECONNECT_MAX_MS)
+        Log.w(TAG, "Scheduling reconnect attempt $reconnectAttempt in ${delayMs}ms")
+
         scope.launch {
-            delay(RECONNECT_BASE_MS)
+            delay(delayMs)
             if (isEnabled()) connect()
         }
     }
@@ -1045,24 +1143,16 @@ object RelayClient {
                 }
             }
         } catch (e: Exception) {
-            Pair(false, "Connection failed: ${e.message}")
+            Pair(false, e.message ?: "Connection failed")
         }
     }
 
     // ─── Device ID ───
     private fun getDeviceId(): String {
-        val key = "device_id"
-        var id = prefs?.getString(key, "") ?: ""
-        if (id.isBlank()) {
-            id = "jarvis-${Build.MODEL?.take(6)?.lowercase()?.replace(" ", "")}-${System.currentTimeMillis() % 10000}"
-            prefs?.edit()?.putString(key, id)?.apply()
+        return prefs?.getString("device_id", null) ?: run {
+            val id = "jarvis-${Build.MANUFACTURER.lowercase()}-${Build.MODEL.lowercase().replace(" ", "-")}-${System.currentTimeMillis() % 10000}"
+            prefs?.edit()?.putString("device_id", id)?.apply()
+            id
         }
-        return id
-    }
-
-    // ─── Connection Info ───
-    fun getConnectionInfo(): String {
-        if (!isConnected.value) return relayStatus.value
-        return "Connected (${getRelayUrl().removePrefix("https://").removePrefix("http://")})"
     }
 }

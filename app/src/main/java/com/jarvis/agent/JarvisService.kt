@@ -140,7 +140,7 @@ class JarvisService : AccessibilityService() {
                     if (!isRunning.value) break
                     currentStep.value = step
                     status.value = "Step $step: Capturing screen..."
-                    delay(400)
+                    delay(150)
 
                     val b64 = captureScreen()
                     if (b64 == null) {
@@ -250,6 +250,8 @@ class JarvisService : AccessibilityService() {
             } finally {
                 isRunning.value = false
                 RelayClient.pushStatusUpdate(status.value, currentStep.value, currentAction.value)
+                // Ensure HUD overlay disappears after task finishes
+                HUDService.hide(this@JarvisService)
             }
         }
     }
@@ -329,7 +331,7 @@ class JarvisService : AccessibilityService() {
     // ════════════════════════════════════════════════
 
     suspend fun autoCapture(): Pair<String?, String?> {
-        delay(400) // Wait for UI to settle after action
+        delay(150) // Wait for UI to settle after action (was 400ms, now 150ms)
         val b64 = captureScreen()
         val uiTree = withContext(Dispatchers.Main) {
             try { parseUITree(rootInActiveWindow) } catch (e: Exception) { null }
@@ -380,16 +382,16 @@ class JarvisService : AccessibilityService() {
                 }
             }
 
-            // Delay between actions
+            // Delay between actions (optimized for speed)
             val delayMs = if (sa.delay > 0) sa.delay else when (sa.action) {
-                "TAP" -> 300L
-                "LONG_PRESS" -> 700L
-                "SWIPE", "SCROLL" -> 600L
-                "TYPE" -> 500L
-                "OPEN_APP" -> 2000L
-                "PRESS_BACK", "PRESS_HOME", "PRESS_RECENTS" -> 500L
-                "WAIT" -> 1000L
-                else -> 400L
+                "TAP" -> 100L
+                "LONG_PRESS" -> 400L
+                "SWIPE", "SCROLL" -> 300L
+                "TYPE" -> 250L
+                "OPEN_APP" -> 1500L
+                "PRESS_BACK", "PRESS_HOME", "PRESS_RECENTS" -> 250L
+                "WAIT" -> 500L
+                else -> 200L
             }
             delay(delayMs)
         }
