@@ -787,7 +787,7 @@ try {
 
   app.post('/messages', (req, res) => {
     if (sseTransport) {
-      sseTransport.handlePostMessage(req, res);
+      sseTransport.handlePostMessage(req, res, req.body);
     } else {
       res.status(400).json({ error: 'No active SSE connection. Connect to /sse first.' });
     }
