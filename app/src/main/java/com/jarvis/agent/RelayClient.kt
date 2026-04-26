@@ -18,7 +18,7 @@ import java.util.concurrent.TimeUnit
  * JARVIS MCP Relay Client v9.0 — Speed Beast + Robust Reconnect
  *
  * Key improvements over v4.0:
- *   - Faster MCP auto-reset: 3s (was 5s) — overlay dismisses faster
+ *   - MCP auto-reset: 30s (was 3s) — gives brain time to think between commands
  *   - Robust reconnection: Re-registers on ANY poll failure (not just 5+)
  *   - Shorter warmup interval: 8min (was 12min) — keeps Render alive
  *   - Health check every 20s (was 30s) — detects disconnects faster
@@ -37,7 +37,7 @@ object RelayClient {
     private const val STATUS_PUSH_INTERVAL_MS = 5000L
     private const val WARMUP_INTERVAL_MS = 8 * 60 * 1000L  // Was 12min
     private const val HEALTH_CHECK_INTERVAL_MS = 20_000L    // Was 30s
-    private const val MCP_AUTO_RESET_MS = 3_000L           // Was 5s
+    private const val MCP_AUTO_RESET_MS = 30_000L          // Was 3s — brain needs time to think (10-30s between commands)
 
     val isConnected = MutableStateFlow(false)
     val relayStatus = MutableStateFlow("Disconnected")
@@ -45,6 +45,8 @@ object RelayClient {
     // Track MCP activity for PiP overlay
     val mcpActive = MutableStateFlow(false)
     val mcpLastAction = MutableStateFlow("")
+    val mcpSessionActive = MutableStateFlow(false)   // Tracks whether brain session is active (not just individual commands)
+    private var lastMcpCommandTimeMs = 0L
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(60, TimeUnit.SECONDS)
@@ -134,14 +136,21 @@ object RelayClient {
         consecutiveErrors = 0
         reconnectAttempt = 0
         mcpActive.value = false
+        mcpSessionActive.value = false
     }
 
-    // ─── Auto-reset MCP active state after 3s of no commands ───
+    // ─── Auto-reset MCP active state after 30s of no commands ───
+    // Session stays active longer — only ends after 60s of no commands
     private fun scheduleMcpAutoReset() {
         mcpAutoResetJob?.cancel()
         mcpAutoResetJob = scope.launch {
             delay(MCP_AUTO_RESET_MS)
             mcpActive.value = false
+            // Session stays active longer — only ends after 60s of no commands
+            delay(30_000L) // Additional 30s after mcpActive goes false
+            if (mcpLastAction.value.isEmpty() || System.currentTimeMillis() - lastMcpCommandTimeMs > 60_000L) {
+                mcpSessionActive.value = false
+            }
         }
     }
 
@@ -394,7 +403,9 @@ object RelayClient {
 
         // Show PiP overlay when MCP commands arrive
         mcpActive.value = true
+        mcpSessionActive.value = true
         mcpLastAction.value = type
+        lastMcpCommandTimeMs = System.currentTimeMillis()
 
         serviceRef?.let { service ->
             HUDService.showForMcp(service)

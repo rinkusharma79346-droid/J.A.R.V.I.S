@@ -271,6 +271,7 @@ class JarvisService : AccessibilityService() {
             } finally {
                 isRunning.value = false
                 RelayClient.mcpActive.value = false
+                RelayClient.mcpSessionActive.value = false
                 RelayClient.pushStatusUpdate(status.value, currentStep.value, currentAction.value)
                 // CRITICAL FIX: Force-hide overlay after task finishes
                 HUDService.forceHide(this@JarvisService)

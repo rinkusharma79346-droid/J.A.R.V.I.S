@@ -44,7 +44,7 @@ const startTime = Date.now();
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
-    version: '5.0.0',
+    version: '6.0.0',
     protocol: 'HTTP Long-Polling + MCP SSE + Streamable HTTP',
     devices: devices.size,
     pendingResponses: responses.size,
@@ -350,7 +350,7 @@ setInterval(() => {
 app.get('/', (req, res) => {
   res.json({
     name: 'JARVIS MCP Relay Server',
-    version: '5.0.0',
+    version: '6.0.0',
     protocol: 'HTTP Long-Polling + MCP SSE + Streamable HTTP',
     features: ['auto-capture', 'sequence-commands', 'chrome-url-macro', 'content-workflows', 'mcp-sse', 'mcp-streamable-http'],
     endpoints: {
@@ -626,7 +626,7 @@ try {
   // ─── Helper: Create a new MCP server instance ───
   function createMcpServer() {
     const server = new McpServer(
-      { name: 'jarvis-mcp-server', version: '5.0.0' },
+      { name: 'jarvis-mcp-server', version: '6.0.0' },
       { capabilities: { tools: {} } }
     );
 
@@ -955,49 +955,61 @@ try {
   }
 
   // ═══════════════════════════════════════════════════
-  // SSE Transport (legacy, widely supported by Claude.ai)
+  // SSE Transport — FIXED: No custom heartbeat, async connect
   // ═══════════════════════════════════════════════════
 
   let sseTransport = null;
   let sseServer = null;
-  let sseHeartbeat = null;
 
-  app.get('/sse', (req, res) => {
-    console.log('[MCP-SSE] New SSE connection from Claude.ai');
+  app.get('/sse', async (req, res) => {
+    console.log('[MCP-SSE] New SSE connection from brain');
 
-    // Close previous connection if any
+    // If there's already an active connection, log it but don't forcefully close it.
+    // Let the old one finish naturally — killing it mid-tool-call breaks things.
     if (sseTransport) {
-      try { sseTransport.close?.(); } catch (e) { /* ignore */ }
-    }
-    if (sseHeartbeat) {
-      clearInterval(sseHeartbeat);
+      console.log('[MCP-SSE] Replacing existing SSE connection');
     }
 
     // Create new server + transport for this connection
-    sseServer = createMcpServer();
-    sseTransport = new SSEServerTransport('/messages', res);
-    sseServer.connect(sseTransport);
+    const newServer = createMcpServer();
+    const newTransport = new SSEServerTransport('/messages', res);
 
-    // Heartbeat to keep SSE alive on Render (sends comment every 15s)
-    sseHeartbeat = setInterval(() => {
-      try {
-        res.write(':heartbeat\n\n');
-      } catch (e) {
-        clearInterval(sseHeartbeat);
-      }
-    }, 15000);
+    try {
+      await newServer.connect(newTransport);
+    } catch (e) {
+      console.error('[MCP-SSE] Failed to connect transport:', e.message);
+      return;
+    }
+
+    // Only update globals AFTER successful connect
+    sseServer = newServer;
+    sseTransport = newTransport;
+
+    console.log('[MCP-SSE] SSE transport connected successfully');
+
+    // NO custom heartbeat — SSEServerTransport manages its own SSE stream.
+    // Writing directly to `res` corrupts the stream and causes disconnect loops.
 
     req.on('close', () => {
       console.log('[MCP-SSE] SSE connection closed');
-      if (sseHeartbeat) clearInterval(sseHeartbeat);
-      sseTransport = null;
-      sseServer = null;
+      // Only clear globals if this is still the active connection
+      if (sseTransport === newTransport) {
+        sseTransport = null;
+        sseServer = null;
+      }
     });
   });
 
-  app.post('/messages', (req, res) => {
+  app.post('/messages', async (req, res) => {
     if (sseTransport) {
-      sseTransport.handlePostMessage(req, res, req.body);
+      try {
+        await sseTransport.handlePostMessage(req, res, req.body);
+      } catch (e) {
+        console.error('[MCP-SSE] Error handling message:', e.message);
+        if (!res.headersSent) {
+          res.status(500).json({ error: 'Message handling failed' });
+        }
+      }
     } else {
       res.status(400).json({ error: 'No active SSE connection. Connect to /sse first.' });
     }
@@ -1090,7 +1102,7 @@ try {
 // ─── Start Server ───
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`╔══════════════════════════════════════════════╗`);
-  console.log(`║   JARVIS MCP Relay Server v5.0               ║`);
+  console.log(`║   JARVIS MCP Relay Server v6.0               ║`);
   console.log(`║   HTTP Long-Polling + MCP SSE + Streamable   ║`);
   console.log(`║   Claude.ai: /sse or /mcp endpoint           ║`);
   console.log(`║   Port: ${PORT}                                 ║`);
