@@ -331,7 +331,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="JARVIS v8.0 · Neural Engine"
+                android:text="JARVIS v9.0 · Content Engine"
                 android:textColor="@color/text_faint"
                 android:textSize="9sp"
                 android:fontFamily="monospace"

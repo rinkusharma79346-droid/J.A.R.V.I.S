@@ -44,7 +44,7 @@ const startTime = Date.now();
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
-    version: '4.2.0',
+    version: '5.0.0',
     protocol: 'HTTP Long-Polling + MCP SSE + Streamable HTTP',
     devices: devices.size,
     pendingResponses: responses.size,
@@ -350,9 +350,9 @@ setInterval(() => {
 app.get('/', (req, res) => {
   res.json({
     name: 'JARVIS MCP Relay Server',
-    version: '4.2.0',
+    version: '5.0.0',
     protocol: 'HTTP Long-Polling + MCP SSE + Streamable HTTP',
-    features: ['auto-capture', 'sequence-commands', 'chrome-url-macro', 'mcp-sse', 'mcp-streamable-http'],
+    features: ['auto-capture', 'sequence-commands', 'chrome-url-macro', 'content-workflows', 'mcp-sse', 'mcp-streamable-http'],
     endpoints: {
       'POST /api/register': 'Device registration',
       'GET  /api/poll': 'Device long-poll for commands',
@@ -551,12 +551,82 @@ try {
       description: 'List all JARVIS devices connected to the relay server.',
       inputSchema: { type: 'object', properties: {} },
     },
+
+    // ═══════════════════════════════════════════════════════════
+    // CONTENT CREATION WORKFLOW TOOLS — For "Why You" AI Channel
+    // High-level macros that chain multiple actions for speed
+    // ═══════════════════════════════════════════════════════════
+
+    {
+      name: 'jarvis_create_image',
+      description: 'CONTENT WORKFLOW: Generate AI image → download → view. Opens an AI image generator (Google Flow Studios, Ideogram, etc.), enters the prompt, and waits for the image to generate. FAST: Uses sequence commands to minimize round-trips.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          url: { type: 'string', description: 'AI image generator URL (e.g., https://labs.google/fx/tools/flow)' },
+          prompt: { type: 'string', description: 'Image generation prompt' },
+        },
+        required: ['url', 'prompt'],
+      },
+    },
+    {
+      name: 'jarvis_create_video',
+      description: 'CONTENT WORKFLOW: Generate AI video clip. Opens an AI video generator (Google Veo, Runway, etc.), enters the prompt, and waits for the video. Returns screenshot of the result.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          url: { type: 'string', description: 'AI video generator URL' },
+          prompt: { type: 'string', description: 'Video generation prompt' },
+        },
+        required: ['url', 'prompt'],
+      },
+    },
+    {
+      name: 'jarvis_edit_in_capcut',
+      description: 'CONTENT WORKFLOW: Open CapCut with a specific project or start new edit. Opens CapCut app and navigates to create/edit mode.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          action: { type: 'string', enum: ['new_project', 'open_recent', 'edit_current'], description: 'What to do in CapCut' },
+        },
+        required: ['action'],
+      },
+    },
+    {
+      name: 'jarvis_post_content',
+      description: 'CONTENT WORKFLOW: Post content to social media (YouTube, Instagram, etc.). Opens the app, navigates to create post, and fills in the content. Returns screenshot for review.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          platform: { type: 'string', enum: ['youtube', 'instagram', 'twitter', 'tiktok'], description: 'Social media platform' },
+          title: { type: 'string', description: 'Post title or caption' },
+          description: { type: 'string', description: 'Post description or body text' },
+        },
+        required: ['platform'],
+      },
+    },
+    {
+      name: 'jarvis_quick_sequence',
+      description: 'FAST: Execute a predefined content creation sequence. Combines common multi-step workflows into one command. Available workflows: "open_and_prompt" (open URL + type prompt + submit), "download_and_save" (long press + save image), "scroll_and_find" (scroll down to find element by text).',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          workflow: { type: 'string', enum: ['open_and_prompt', 'download_and_save', 'scroll_and_find', 'dismiss_popup', 'click_button_by_text'], description: 'Predefined workflow to execute' },
+          url: { type: 'string', description: 'URL (for open_and_prompt)' },
+          prompt: { type: 'string', description: 'Prompt text (for open_and_prompt)' },
+          searchText: { type: 'string', description: 'Text to search for (for scroll_and_find, click_button_by_text)' },
+          imageX: { type: 'integer', description: 'X coordinate of image (for download_and_save)' },
+          imageY: { type: 'integer', description: 'Y coordinate of image (for download_and_save)' },
+        },
+        required: ['workflow'],
+      },
+    },
   ];
 
   // ─── Helper: Create a new MCP server instance ───
   function createMcpServer() {
     const server = new McpServer(
-      { name: 'jarvis-mcp-server', version: '4.2.0' },
+      { name: 'jarvis-mcp-server', version: '5.0.0' },
       { capabilities: { tools: {} } }
     );
 
@@ -653,6 +723,130 @@ try {
             }
             return { content: [{ type: 'text', text: deviceList.length > 0 ? deviceList.join('\n\n') : 'No JARVIS devices connected.' }] };
           }
+
+          // ═══════════════════════════════════════════════════════
+          // CONTENT CREATION WORKFLOW HANDLERS
+          // ═══════════════════════════════════════════════════════
+
+          case 'jarvis_create_image': {
+            // Step 1: Open the AI image generator URL
+            const openR = await mcpSendCommand('open_chrome_url', { url: args?.url });
+            if (openR.isError) return openR;
+            // Step 2: Look at the screen to find the prompt input
+            const lookR = await mcpSendCommand('screenshot_and_ui');
+            if (lookR.isError) return lookR;
+            const lookData = lookR.raw || {};
+            const resultContent = [];
+            if (lookData.base64) resultContent.push({ type: 'image', data: lookData.base64, mimeType: lookData.mimeType || 'image/jpeg' });
+            resultContent.push({ type: 'text', text: `Opened ${args?.url}. Now look at the screen and find the prompt input field, then use jarvis_type_text + jarvis_tap to submit. UI Tree:\n${lookData.uiTree || 'N/A'}` });
+            return { content: resultContent };
+          }
+
+          case 'jarvis_create_video': {
+            const openR = await mcpSendCommand('open_chrome_url', { url: args?.url });
+            if (openR.isError) return openR;
+            const lookR = await mcpSendCommand('screenshot_and_ui');
+            if (lookR.isError) return lookR;
+            const lookData = lookR.raw || {};
+            const resultContent = [];
+            if (lookData.base64) resultContent.push({ type: 'image', data: lookData.base64, mimeType: lookData.mimeType || 'image/jpeg' });
+            resultContent.push({ type: 'text', text: `Opened ${args?.url} for video generation. Find the prompt field and use jarvis_type_text to enter your prompt. UI Tree:\n${lookData.uiTree || 'N/A'}` });
+            return { content: resultContent };
+          }
+
+          case 'jarvis_edit_in_capcut': {
+            const openR = await mcpSendCommand('open_app', { app: 'CapCut' });
+            if (openR.isError) return openR;
+            // Wait for CapCut to load
+            await new Promise(r => setTimeout(r, 3000));
+            const lookR = await mcpSendCommand('screenshot_and_ui');
+            if (lookR.isError) return lookR;
+            const lookData = lookR.raw || {};
+            const resultContent = [];
+            if (lookData.base64) resultContent.push({ type: 'image', data: lookData.base64, mimeType: lookData.mimeType || 'image/jpeg' });
+            resultContent.push({ type: 'text', text: `CapCut opened. Action: ${args?.action}. Look at the screen to find the right button. UI Tree:\n${lookData.uiTree || 'N/A'}` });
+            return { content: resultContent };
+          }
+
+          case 'jarvis_post_content': {
+            const appMap = { youtube: 'YouTube', instagram: 'Instagram', twitter: 'X', tiktok: 'TikTok' };
+            const appName = appMap[args?.platform] || args?.platform;
+            const openR = await mcpSendCommand('open_app', { app: appName });
+            if (openR.isError) return openR;
+            await new Promise(r => setTimeout(r, 2000));
+            const lookR = await mcpSendCommand('screenshot_and_ui');
+            if (lookR.isError) return lookR;
+            const lookData = lookR.raw || {};
+            const resultContent = [];
+            if (lookData.base64) resultContent.push({ type: 'image', data: lookData.base64, mimeType: lookData.mimeType || 'image/jpeg' });
+            resultContent.push({ type: 'text', text: `Opened ${appName}. Title: ${args?.title || 'N/A'}. Description: ${args?.description || 'N/A'}. Find the create/post button and proceed. UI Tree:\n${lookData.uiTree || 'N/A'}` });
+            return { content: resultContent };
+          }
+
+          case 'jarvis_quick_sequence': {
+            const workflow = args?.workflow;
+            if (workflow === 'open_and_prompt') {
+              // Open URL, then type prompt, then tap submit (3 steps in one)
+              const openR = await mcpSendCommand('open_chrome_url', { url: args?.url });
+              if (openR.isError) return openR;
+              const lookR = await mcpSendCommand('screenshot_and_ui');
+              if (lookR.isError) return lookR;
+              const lookData = lookR.raw || {};
+              const resultContent = [];
+              if (lookData.base64) resultContent.push({ type: 'image', data: lookData.base64, mimeType: lookData.mimeType || 'image/jpeg' });
+              resultContent.push({ type: 'text', text: `URL opened. Now find the prompt input field coordinates and use jarvis_type_text to enter: "${args?.prompt || ''}". Then find the submit/generate button. UI Tree:\n${lookData.uiTree || 'N/A'}` });
+              return { content: resultContent };
+            } else if (workflow === 'download_and_save') {
+              // Long press on image, then find Save option
+              const seqR = await mcpSendCommand('sequence', { actions: [
+                { action: 'LONG_PRESS', x: args?.imageX || 540, y: args?.imageY || 960 },
+                { action: 'WAIT', delay: 500 },
+              ] });
+              if (seqR.isError) return seqR;
+              const lookR = await mcpSendCommand('screenshot_and_ui');
+              if (lookR.isError) return lookR;
+              const lookData = lookR.raw || {};
+              const resultContent = [];
+              if (lookData.base64) resultContent.push({ type: 'image', data: lookData.base64, mimeType: lookData.mimeType || 'image/jpeg' });
+              resultContent.push({ type: 'text', text: `Long-pressed at (${args?.imageX}, ${args?.imageY}). Look for "Save image" or "Download" option in the context menu. UI Tree:\n${lookData.uiTree || 'N/A'}` });
+              return { content: resultContent };
+            } else if (workflow === 'scroll_and_find' || workflow === 'click_button_by_text') {
+              // Scroll down to find text, or click a button by its text
+              const lookR = await mcpSendCommand('screenshot_and_ui');
+              if (lookR.isError) return lookR;
+              const lookData = lookR.raw || {};
+              const uiTree = lookData.uiTree || '';
+              const searchText = args?.searchText || '';
+
+              // Search in UI tree for the text
+              if (searchText && uiTree.includes(searchText)) {
+                // Try to find coordinates from UI tree
+                const resultContent = [];
+                if (lookData.base64) resultContent.push({ type: 'image', data: lookData.base64, mimeType: lookData.mimeType || 'image/jpeg' });
+                resultContent.push({ type: 'text', text: `Found "${searchText}" on screen! Look at the UI tree for its coordinates and tap it. UI Tree:\n${uiTree}` });
+                return { content: resultContent };
+              } else if (searchText) {
+                // Text not found — scroll down and try again
+                const scrollR = await mcpSendCommand('sequence', { actions: [
+                  { action: 'SCROLL', x: 540, y: 1500, x2: 540, y2: 500 },
+                ] });
+                const lookR2 = await mcpSendCommand('screenshot_and_ui');
+                const lookData2 = lookR2.raw || {};
+                const resultContent = [];
+                if (lookData2.base64) resultContent.push({ type: 'image', data: lookData2.base64, mimeType: lookData2.mimeType || 'image/jpeg' });
+                resultContent.push({ type: 'text', text: `Scrolled down. ${lookData2.uiTree?.includes(searchText) ? `Found "${searchText}"!` : `"${searchText}" still not visible, may need more scrolling.`} UI Tree:\n${lookData2.uiTree || 'N/A'}` });
+                return { content: resultContent };
+              }
+              return { content: [{ type: 'text', text: 'No searchText provided for workflow.' }] };
+            } else if (workflow === 'dismiss_popup') {
+              // Try pressing back to dismiss popup/dialog
+              const backR = await mcpSendCommand('press_back');
+              if (backR.isError) return backR;
+              return mcpFormatCapture(backR, 'dismiss_popup (pressed BACK)');
+            }
+            return { content: [{ type: 'text', text: `Unknown workflow: ${workflow}` }] };
+          }
+
           default:
             return { content: [{ type: 'text', text: `Unknown tool: ${name}` }], isError: true };
         }
@@ -896,7 +1090,7 @@ try {
 // ─── Start Server ───
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`╔══════════════════════════════════════════════╗`);
-  console.log(`║   JARVIS MCP Relay Server v4.2               ║`);
+  console.log(`║   JARVIS MCP Relay Server v5.0               ║`);
   console.log(`║   HTTP Long-Polling + MCP SSE + Streamable   ║`);
   console.log(`║   Claude.ai: /sse or /mcp endpoint           ║`);
   console.log(`║   Port: ${PORT}                                 ║`);

@@ -18,41 +18,70 @@ import android.widget.TextView
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.collectLatest
 
+/**
+ * HUD Overlay Service v9.0 — Fast Dismiss Edition
+ *
+ * KEY FIX: Overlay now reliably dismisses after task completion.
+ * - Tracks both MCP active state AND JarvisService running state
+ * - Auto-hides 1.5s after MCP command finishes (was 5s → too slow)
+ * - Aggressive auto-hide: if neither MCP nor local task is active → dismiss immediately
+ * - Force-hide on task completion signals from both RelayClient and JarvisService
+ */
 class HUDService : Service() {
 
     companion object {
         private const val TAG = "HUDService"
-        private const val MCP_AUTO_HIDE_MS = 5_000L
-        private const val MCP_DONE_HIDE_MS = 2_000L
+        private const val MCP_DONE_HIDE_MS = 1_500L    // Hide 1.5s after MCP done (was 2s)
+        private const val MCP_FORCE_HIDE_MS = 3_000L   // Force hide 3s after last MCP activity (was 5s)
+        private const val LOCAL_TASK_DONE_HIDE_MS = 1_000L // Hide 1s after local task finishes
 
         private var isRunning = false
         private var lastMcpCommandTime = 0L
+        private var lastLocalTaskTime = 0L
 
         /**
          * Start the HUD overlay for MCP command processing.
-         * Called from RelayClient when MCP commands arrive.
-         * This is the CRITICAL FIX — previously HUD only started from EXECUTE button.
          */
         fun showForMcp(context: Context) {
             if (!isRunning) {
                 Log.d(TAG, "showForMcp: Starting HUD service for MCP overlay")
                 val intent = Intent(context, HUDService::class.java)
                 context.startService(intent)
+            } else {
+                // Already running — just update timestamp
+                lastMcpCommandTime = System.currentTimeMillis()
             }
         }
 
         /** Stop the HUD overlay from outside. */
         fun hide(context: Context) {
-            context.stopService(Intent(context, HUDService::class.java))
+            try {
+                context.stopService(Intent(context, HUDService::class.java))
+            } catch (e: Exception) {
+                Log.w(TAG, "hide: ${e.message}")
+            }
         }
 
         /**
          * Called by RelayClient after each MCP command handler completes.
-         * Schedules a faster auto-hide since the command is done.
+         * Signals that the command is done — overlay should dismiss soon.
          */
         fun mcpCommandDone() {
             lastMcpCommandTime = System.currentTimeMillis()
-            Log.d(TAG, "mcpCommandDone: MCP command finished, scheduling auto-hide from done signal")
+            Log.d(TAG, "mcpCommandDone: MCP command finished, scheduling auto-hide")
+        }
+
+        /**
+         * Force hide from anywhere. Used when task is clearly done.
+         */
+        fun forceHide(context: Context) {
+            lastMcpCommandTime = 0L
+            lastLocalTaskTime = System.currentTimeMillis()
+            try {
+                context.stopService(Intent(context, HUDService::class.java))
+            } catch (e: Exception) {
+                Log.w(TAG, "forceHide: ${e.message}")
+            }
         }
     }
 
@@ -71,16 +100,19 @@ class HUDService : Service() {
     private var mcpStateJob: Job? = null
     private var autoHideJob: Job? = null
     private var mcpDoneWatchJob: Job? = null
+    private var isRunningJob: Job? = null
     private val serviceScope = CoroutineScope(Dispatchers.Main + Job())
 
     /** Track whether this instance was started for MCP (vs local EXECUTE) */
     private var isMcpMode = false
+    private var hasBeenToldToHide = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
         isRunning = true
+        hasBeenToldToHide = false
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
 
         overlayView = LayoutInflater.from(this).inflate(R.layout.overlay_hud, null)
@@ -112,7 +144,7 @@ class HUDService : Service() {
         overlayView.animate()
             .alpha(1f)
             .translationY(0f)
-            .setDuration(300)
+            .setDuration(200)
             .setInterpolator(DecelerateInterpolator())
             .start()
 
@@ -121,14 +153,7 @@ class HUDService : Service() {
             JarvisService.stopTask()
             tvStatus.text = "JARVIS Killed"
             tvHudAction.text = ""
-
-            // If MCP-only mode, auto-hide after a moment
-            if (isMcpMode) {
-                serviceScope.launch {
-                    delay(1500)
-                    stopSelf()
-                }
-            }
+            scheduleImmediateHide()
         }
 
         // ─── Observe JarvisService status (local ReAct loop) ───
@@ -137,7 +162,7 @@ class HUDService : Service() {
                 tvStatus.text = "JARVIS"
                 tvHudAction.text = status
                 tvHudAction.alpha = 0f
-                tvHudAction.animate().alpha(1f).setDuration(250).start()
+                tvHudAction.animate().alpha(1f).setDuration(200).start()
             }
         }
 
@@ -166,17 +191,13 @@ class HUDService : Service() {
                     tvStatus.text = "JARVIS"
                     tvHudRelay.text = "● MCP"
                     tvHudRelay.setTextColor(getColor(R.color.green_accent))
-
-                    // Show status dot as cyan (active)
                     hudDot.setBackgroundResource(R.drawable.status_dot_active)
-
-                    // Start auto-hide timer — if no MCP commands for 5s, hide overlay
                     scheduleAutoHide()
                 } else {
-                    // MCP went inactive — update dot and schedule faster hide
+                    // MCP went inactive — check if local task is also done
                     if (!JarvisService.isRunning.value) {
                         hudDot.setBackgroundResource(R.drawable.status_dot_idle)
-                        // MCP inactive and no local task running — hide quickly
+                        // MCP inactive + no local task → dismiss overlay
                         if (isMcpMode) {
                             scheduleDoneAutoHide()
                         }
@@ -191,9 +212,7 @@ class HUDService : Service() {
                 if (action.isNotBlank()) {
                     tvHudAction.text = action
                     tvHudAction.alpha = 0f
-                    tvHudAction.animate().alpha(1f).setDuration(200).start()
-
-                    // Reset auto-hide timer on each new action
+                    tvHudAction.animate().alpha(1f).setDuration(150).start()
                     lastMcpCommandTime = System.currentTimeMillis()
                     scheduleAutoHide()
                 }
@@ -208,54 +227,66 @@ class HUDService : Service() {
                     lastMcpCommandTime = System.currentTimeMillis()
                     tvHudAction.text = if (state.lastAction.isNotBlank()) state.lastAction else state.currentCommand
                     tvHudAction.alpha = 0f
-                    tvHudAction.animate().alpha(1f).setDuration(200).start()
+                    tvHudAction.animate().alpha(1f).setDuration(150).start()
                     hudDot.setBackgroundResource(R.drawable.status_dot_active)
-
                     if (state.commandCount > 0) {
                         tvHudStep.text = "${state.commandCount} remaining"
                     }
-
                     scheduleAutoHide()
                 }
             }
         }
 
-        // ─── Observe isRunning to update dot and auto-hide logic ───
-        serviceScope.launch {
+        // ─── CRITICAL FIX: Observe isRunning to detect task completion ───
+        isRunningJob = serviceScope.launch {
             JarvisService.isRunning.collectLatest { running ->
                 if (running) {
                     hudDot.setBackgroundResource(R.drawable.status_dot_active)
-                    // Cancel auto-hide when local task is running
                     autoHideJob?.cancel()
                 } else {
-                    // If not MCP active either, go idle
+                    // Task stopped — check if MCP is also inactive
+                    lastLocalTaskTime = System.currentTimeMillis()
                     if (!RelayClient.mcpActive.value) {
                         hudDot.setBackgroundResource(R.drawable.status_dot_idle)
-                        // Auto-hide if MCP-only mode
+                        // Both local task AND MCP are done → hide overlay quickly
                         if (isMcpMode) {
                             scheduleDoneAutoHide()
+                        } else {
+                            // Local-only task done → hide after brief delay
+                            scheduleLocalTaskDoneHide()
                         }
                     }
                 }
             }
         }
 
-        // ─── Periodic MCP done watcher: checks if mcpCommandDone was called ───
+        // ─── Periodic watchdog: force-hide overlay if it's stuck ───
         mcpDoneWatchJob = serviceScope.launch {
             while (isActive) {
-                delay(1000)
-                if (isMcpMode && !JarvisService.isRunning.value) {
-                    val elapsed = System.currentTimeMillis() - lastMcpCommandTime
-                    // If last MCP command finished >2s ago and mcpActive is false, auto-hide
-                    if (elapsed > MCP_DONE_HIDE_MS && !RelayClient.mcpActive.value) {
-                        Log.d(TAG, "MCP done watcher: ${elapsed}ms since last command, auto-hiding")
+                delay(500) // Check every 500ms (was 1000ms — too slow)
+                val now = System.currentTimeMillis()
+
+                // Case 1: MCP mode, task not running, mcpActive is false → should be hiding
+                if (isMcpMode && !JarvisService.isRunning.value && !RelayClient.mcpActive.value) {
+                    val elapsed = now - lastMcpCommandTime
+                    if (elapsed > MCP_DONE_HIDE_MS) {
+                        Log.d(TAG, "Watchdog: MCP done + task stopped + ${elapsed}ms elapsed → hiding")
                         animateHideAndStop()
                     }
-                    // If mcpActive is still true but no commands for 5s, force hide
-                    if (elapsed > MCP_AUTO_HIDE_MS) {
-                        Log.d(TAG, "MCP done watcher: ${elapsed}ms since last command (mcpActive=${RelayClient.mcpActive.value}), auto-hiding")
+                }
+
+                // Case 2: MCP mode, been too long since any activity → force hide
+                if (isMcpMode && lastMcpCommandTime > 0 && (now - lastMcpCommandTime) > MCP_FORCE_HIDE_MS) {
+                    if (!JarvisService.isRunning.value) {
+                        Log.d(TAG, "Watchdog: ${now - lastMcpCommandTime}ms since last MCP command → force hiding")
                         animateHideAndStop()
                     }
+                }
+
+                // Case 3: Local-only task, task finished, been >1s → hide
+                if (!isMcpMode && !JarvisService.isRunning.value && lastLocalTaskTime > 0 && (now - lastLocalTaskTime) > LOCAL_TASK_DONE_HIDE_MS) {
+                    Log.d(TAG, "Watchdog: Local task done >1s ago → hiding")
+                    animateHideAndStop()
                 }
             }
         }
@@ -265,54 +296,85 @@ class HUDService : Service() {
     }
 
     /**
-     * Schedule auto-hide after MCP_AUTO_HIDE_MS of no activity.
-     * Each new MCP command resets this timer.
+     * Schedule auto-hide after MCP_FORCE_HIDE_MS of no activity.
      */
     private fun scheduleAutoHide() {
         autoHideJob?.cancel()
         autoHideJob = serviceScope.launch {
-            delay(MCP_AUTO_HIDE_MS)
-            // Only auto-hide if we're in MCP mode AND local task isn't running
+            delay(MCP_FORCE_HIDE_MS)
             if (isMcpMode && !JarvisService.isRunning.value) {
-                Log.d(TAG, "Auto-hiding HUD after ${MCP_AUTO_HIDE_MS}ms of MCP inactivity")
+                Log.d(TAG, "Auto-hiding HUD after ${MCP_FORCE_HIDE_MS}ms of MCP inactivity")
                 animateHideAndStop()
             }
         }
     }
 
     /**
-     * Schedule faster auto-hide after mcpCommandDone() is called.
-     * Hides after MCP_DONE_HIDE_MS (2s) when MCP is confirmed finished.
+     * Schedule faster auto-hide after MCP command done.
      */
     private fun scheduleDoneAutoHide() {
         autoHideJob?.cancel()
         autoHideJob = serviceScope.launch {
             delay(MCP_DONE_HIDE_MS)
-            if (isMcpMode && !JarvisService.isRunning.value) {
+            // Double-check: still not running
+            if (!JarvisService.isRunning.value) {
                 Log.d(TAG, "Auto-hiding HUD after MCP done signal (${MCP_DONE_HIDE_MS}ms)")
                 animateHideAndStop()
             }
         }
     }
 
+    /**
+     * Schedule hide after local task finishes.
+     */
+    private fun scheduleLocalTaskDoneHide() {
+        autoHideJob?.cancel()
+        autoHideJob = serviceScope.launch {
+            delay(LOCAL_TASK_DONE_HIDE_MS)
+            if (!JarvisService.isRunning.value && !RelayClient.mcpActive.value) {
+                Log.d(TAG, "Auto-hiding HUD after local task done (${LOCAL_TASK_DONE_HIDE_MS}ms)")
+                animateHideAndStop()
+            }
+        }
+    }
+
+    /**
+     * Immediately schedule hide (for KILL button).
+     */
+    private fun scheduleImmediateHide() {
+        autoHideJob?.cancel()
+        autoHideJob = serviceScope.launch {
+            delay(500)
+            animateHideAndStop()
+        }
+    }
+
     /** Animate overlay out, then stop service. */
     private fun animateHideAndStop() {
+        if (hasBeenToldToHide) return // Prevent double-stop
+        hasBeenToldToHide = true
         autoHideJob?.cancel()
         if (!::overlayView.isInitialized) return
-        overlayView.animate()
-            .alpha(0f)
-            .translationY(-30f)
-            .setDuration(250)
-            .setInterpolator(DecelerateInterpolator())
-            .withEndAction { stopSelf() }
-            .start()
+        try {
+            overlayView.animate()
+                .alpha(0f)
+                .translationY(-30f)
+                .setDuration(200)
+                .setInterpolator(DecelerateInterpolator())
+                .withEndAction {
+                    try { stopSelf() } catch (_: Exception) {}
+                }
+                .start()
+        } catch (e: Exception) {
+            try { stopSelf() } catch (_: Exception) {}
+        }
     }
 
     /** Pulse the status dot when active. */
     private fun startDotPulse() {
         if (!::hudDot.isInitialized) return
         val pulse = AlphaAnimation(0.4f, 1.0f)
-        pulse.duration = 1200
+        pulse.duration = 1000
         pulse.startOffset = 200
         pulse.repeatMode = Animation.REVERSE
         pulse.repeatCount = Animation.INFINITE
@@ -323,12 +385,14 @@ class HUDService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         isRunning = false
+        hasBeenToldToHide = false
         updateJob?.cancel()
         relayJob?.cancel()
         mcpJob?.cancel()
         mcpStateJob?.cancel()
         autoHideJob?.cancel()
         mcpDoneWatchJob?.cancel()
+        isRunningJob?.cancel()
         serviceScope.cancel()
         if (::overlayView.isInitialized) {
             try { windowManager.removeView(overlayView) } catch (_: Exception) {}
