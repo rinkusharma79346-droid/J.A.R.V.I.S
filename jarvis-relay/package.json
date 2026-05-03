@@ -1,7 +1,7 @@
 {
-  "name": "jarvis-relay-server",
+  "name": "vayu-relay-server",
   "version": "6.0.0",
-  "description": "JARVIS MCP Relay Server — HTTP long-polling + MCP SSE + Streamable HTTP for Claude.ai",
+  "description": "V.A.Y.U MCP Relay Server — HTTP long-polling + MCP SSE + Streamable HTTP for Claude.ai",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

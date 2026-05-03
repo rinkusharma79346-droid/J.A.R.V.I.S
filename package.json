@@ -1,8 +1,8 @@
 {
-  "name": "jarvis-agent",
+  "name": "vayu-agent",
   "private": true,
   "version": "9.0.0",
-  "description": "J.A.R.V.I.S. — Autonomous Android Neural Engine. AI agent that controls your phone screen like a human.",
+  "description": "V.A.Y.U Agent — Vision-Assisted Yonder Unit. Autonomous AI agent that controls your phone screen like a human.",
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {

@@ -1,26 +1,26 @@
 <div align="center">
 
-# J.A.R.V.I.S.
+# V.A.Y.U Agent
 
-**Just A Rather Very Intelligent System**
+**Versatile Agent for Your Universe**
 
 **Autonomous Android Neural Engine**
 
 <img src="https://img.shields.io/badge/Android-30+-green?logo=android" alt="Min SDK" />
 <img src="https://img.shields.io/badge/Kotlin-1.9.22-purple?logo=kotlin" alt="Kotlin" />
 <img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License" />
-<img src="https://img.shields.io/badge/MCP-Protocol-cyan" alt="MCP" />
+<img src="https://img.shields.io/badge/MCP-Protocol-orange" alt="MCP" />
 <img src="https://img.shields.io/badge/Version-9.0.0-orange" alt="Version" />
 
 <i>An AI agent that controls your Android phone like a human — taps, swipes, types, and navigates autonomously using vision models. Now with MCP remote control from Claude Desktop.</i>
 
 <br/><br/>
 
-**How it works:** Give JARVIS a task like *"Find the best Italian restaurant in Manhattan and save the address to my notes"* — it reads the screen, thinks, and acts. All by itself.
+**How it works:** Give V.A.Y.U a task like *"Find the best Italian restaurant in Manhattan and save the address to my notes"* — it reads the screen, thinks, and acts. All by itself.
 
 <br/>
 
-<img src="https://img.shields.io/badge/claude--desktop-MCP%20Ready-9cf?logo=anthropic" alt="Claude Desktop" />
+<img src="https://img.shields.io/badge/claude--desktop-MCP%20Ready-orange?logo=anthropic" alt="Claude Desktop" />
 <img src="https://img.shields.io/badge/cursor-MCP%20Ready-blue?logo=cursor" alt="Cursor" />
 <img src="https://img.shields.io/badge/gemini-2.0-flash-blue?logo=google" alt="Gemini" />
 <img src="https://img.shields.io/badge/openai-gpt--4o-green?logo=openai" alt="OpenAI" />
@@ -35,11 +35,11 @@
 
 ---
 
-## Why JARVIS?
+## Why V.A.Y.U?
 
-**Most AI agents live in chat windows.** JARVIS lives on your phone screen.
+**Most AI agents live in chat windows.** V.A.Y.U lives on your phone screen.
 
-Instead of just *talking* about tasks, JARVIS actually *does* them:
+Instead of just *talking* about tasks, V.A.Y.U actually *does* them:
 
 - "Open WhatsApp and send 'I'll be there in 5 min' to Mom" — **done**
 - "Go to YouTube, search for 'Kotlin coroutines tutorial', and watch the first result" — **done**
@@ -92,7 +92,7 @@ It sees your screen through accessibility services, uses AI vision to understand
 
 ```
 ┌───────────────────────┐       HTTP Long-Polling       ┌──────────────────────┐
-│   JARVIS Android App   │ ◄──────────────────────────► │   Relay Server        │
+│   V.A.Y.U Android App   │ ◄──────────────────────────► │   Relay Server        │
 │   (Kotlin)             │   /api/poll, /register       │   (jarvis-relay/)     │
 │                        │   /api/response              │   Express + MCP SDK   │
 │   - Accessibility Svc  │                              │                      │
@@ -163,7 +163,7 @@ It sees your screen through accessibility services, uses AI vision to understand
 
 You can set API keys in three ways (in order of priority):
 
-1. **App Settings UI** — Open JARVIS → Settings → Select provider → Enter API key
+1. **App Settings UI** — Open V.A.Y.U → Settings → Select provider → Enter API key
 2. **`local.properties`** — Add `GEMINI_API_KEY=your_key` for build-time injection
 3. **Environment Variable** — Set `GEMINI_API_KEY` in your shell or CI environment
 
@@ -173,7 +173,7 @@ You can set API keys in three ways (in order of priority):
 
 ## MCP Remote Control
 
-JARVIS supports the [Model Context Protocol](https://modelcontextprotocol.io/) for remote control from AI assistants.
+V.A.Y.U supports the [Model Context Protocol](https://modelcontextprotocol.io/) for remote control from AI assistants.
 
 ### Setup with Claude Desktop
 
@@ -189,7 +189,7 @@ JARVIS supports the [Model Context Protocol](https://modelcontextprotocol.io/) f
    ```json
    {
      "mcpServers": {
-       "jarvis": {
+       "vayu": {
          "command": "node",
          "args": ["/path/to/J.A.R.V.I.S/mcp-server/index.js"]
        }
@@ -272,7 +272,7 @@ External AI clients send commands via MCP tools. The relay server forwards them 
 
 ### MCP Tools (19 available)
 
-`jarvis_tap`, `jarvis_swipe`, `jarvis_long_press`, `jarvis_type`, `jarvis_scroll`, `jarvis_press_back`, `jarvis_press_home`, `jarvis_press_recents`, `jarvis_open_app`, `jarvis_screenshot`, `jarvis_get_ui_tree`, `jarvis_sequence`, `jarvis_open_chrome_url`, `jarvis_status`, `jarvis_execute`, `jarvis_kill`, `jarvis_devices`, `jarvis_list_apps`, and more.
+`vayu_tap`, `vayu_swipe`, `vayu_long_press`, `vayu_type`, `vayu_scroll`, `vayu_press_back`, `vayu_press_home`, `vayu_press_recents`, `vayu_open_app`, `vayu_screenshot`, `vayu_get_ui_tree`, `vayu_sequence`, `vayu_open_chrome_url`, `vayu_status`, `vayu_execute`, `vayu_kill`, `vayu_devices`, `vayu_list_apps`, and more.
 
 ---
 
@@ -355,6 +355,19 @@ Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines
 
 ---
 
+## Download APK
+
+<div align="center">
+
+| Variant | Link |
+|---------|------|
+| Debug APK | [📥 Download](https://github.com/rinkusharma79346-droid/J.A.R.V.I.S/releases) |
+| Release APK | [📥 Download](https://github.com/rinkusharma79346-droid/J.A.R.V.I.S/releases) |
+
+</div>
+
+---
+
 ## License
 
 This project is licensed under the Apache License 2.0 — see the [LICENSE](LICENSE) file for details.
@@ -365,8 +378,8 @@ This project is licensed under the Apache License 2.0 — see the [LICENSE](LICE
 
 **Built with passion by [Rinku Sharma](https://github.com/rinkusharma79346-droid)**
 
-<p><i>"Just A Rather Very Intelligent System"</i></p>
+<p><i>"Versatile Agent for Your Universe"</i></p>
 
-<p>If you find JARVIS useful, consider giving it a ⭐ — it helps more than you think!</p>
+<p>If you find V.A.Y.U useful, consider giving it a ⭐ — it helps more than you think!</p>
 
 </div>

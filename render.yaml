@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: J-A-R-V-I-S
+    name: V-A-Y-U-Agent
     runtime: node
     rootDir: jarvis-relay
     buildCommand: npm install

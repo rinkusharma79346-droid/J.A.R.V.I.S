@@ -1,6 +1,6 @@
 workflows:
   android-apk:
-    name: JARVIS APK Build
+    name: V.A.Y.U APK Build
     max_build_duration: 30
     instance_type: mac_mini_m2
 

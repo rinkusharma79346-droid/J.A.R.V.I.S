@@ -84,7 +84,7 @@ class SettingsActivity : AppCompatActivity() {
             val detected = SettingsManager.detectProvider(key)
             val idx = providerKeys.indexOf(detected).coerceAtLeast(0)
             spinnerProvider.setSelection(idx)
-            tvValidationResult.text = "Detected: ${providers[idx]}"; tvValidationResult.setTextColor(getColor(R.color.cyan_primary)); tvValidationResult.visibility = View.VISIBLE
+            tvValidationResult.text = "Detected: ${providers[idx]}"; tvValidationResult.setTextColor(getColor(R.color.orange_primary)); tvValidationResult.visibility = View.VISIBLE
         }
 
         btnValidate.setOnClickListener {
@@ -115,7 +115,6 @@ class SettingsActivity : AppCompatActivity() {
         etRelayUrl.setText(if (savedRelayUrl.isNotBlank()) savedRelayUrl else SettingsManager.DEFAULT_RELAY_URL)
         switchRelay.isChecked = RelayClient.isEnabled()
 
-        // Observe relay connection status
         relayStatusJob = CoroutineScope(Dispatchers.Main).launch {
             RelayClient.isConnected.collectLatest { connected ->
                 if (connected) {
@@ -149,7 +148,6 @@ class SettingsActivity : AppCompatActivity() {
             }
         }
 
-        // Test relay connection via HTTP health check (instant, no WebSocket)
         btnTestRelay.setOnClickListener {
             val url = etRelayUrl.text.toString().trim()
             if (url.isBlank()) {
@@ -173,7 +171,6 @@ class SettingsActivity : AppCompatActivity() {
                 if (success) {
                     tvRelayStatus.text = "● $message"
                     tvRelayStatus.setTextColor(getColor(R.color.green_accent))
-                    // Save URL and enable relay
                     RelayClient.setRelayUrl(url)
                     switchRelay.isChecked = true
                     RelayClient.setEnabled(true)

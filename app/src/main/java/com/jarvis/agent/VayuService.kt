@@ -19,14 +19,14 @@ import java.io.ByteArrayOutputStream
 import java.util.LinkedList
 
 /**
- * JARVIS Service v9.0 — Speed Beast Edition
+ * VAYU Service v10.0 — Speed Beast Edition
  *
  * Speed optimizations:
- *   - autoCapture delay: 150ms → 80ms (UI settles faster)
+ *   - autoCapture delay: 80ms (UI settles faster)
  *   - Sequence action delays: halved (TAP 50ms, TYPE 150ms, etc.)
- *   - TYPE action: Thread.sleep(500) → delay(200) with coroutine
+ *   - TYPE action: delay(200) with coroutine
  *   - ReAct loop delays: reduced from 800ms to 400ms default
- *   - Faster screenshot compression: quality 60 (was 75)
+ *   - Faster screenshot compression: quality 55
  *
  * Overlay fix:
  *   - Calls HUDService.forceHide() when task completes
@@ -36,11 +36,11 @@ import java.util.LinkedList
  *   - Re-register relay on service connect
  *   - Force MCP active = false when task completes
  */
-class JarvisService : AccessibilityService() {
+class VayuService : AccessibilityService() {
 
     companion object {
-        private const val TAG = "JarvisService"
-        var instance: JarvisService? = null
+        private const val TAG = "VayuService"
+        var instance: VayuService? = null
         val isRunning = MutableStateFlow(false)
         val status = MutableStateFlow("Idle")
         val currentStep = MutableStateFlow(0)
@@ -82,8 +82,8 @@ class JarvisService : AccessibilityService() {
         instance = this
         memory = AgentMemory(getSharedPreferences("jarvis_settings", MODE_PRIVATE))
         status.value = "Ready — Service Connected"
-        Log.i(TAG, "JarvisService connected — ready")
-        Toast.makeText(this, "JARVIS Service Active", Toast.LENGTH_SHORT).show()
+        Log.i(TAG, "VayuService connected — ready")
+        Toast.makeText(this, "VAYU Agent Active", Toast.LENGTH_SHORT).show()
 
         // Initialize relay client and auto-connect
         RelayClient.init(getSharedPreferences("jarvis_settings", MODE_PRIVATE), this)
@@ -154,13 +154,13 @@ class JarvisService : AccessibilityService() {
                 currentAction.value = "Initializing..."
                 RelayClient.pushStatusUpdate(status.value, 0, currentAction.value)
 
-                delay(800L) // Was 1500ms — too slow
+                delay(800L)
 
                 for (step in 1..maxSteps) {
                     if (!isRunning.value) break
                     currentStep.value = step
                     status.value = "Step $step: Capturing screen..."
-                    delay(80) // Was 150ms
+                    delay(80)
 
                     val b64 = captureScreen()
                     if (b64 == null) {
@@ -171,7 +171,7 @@ class JarvisService : AccessibilityService() {
                             currentAction.value = "FAILED: Screen capture unavailable"
                             break
                         }
-                        delay(500L) // Was 1000ms
+                        delay(500L)
                         continue
                     }
                     consecutiveScreenshotFailures = 0
@@ -181,7 +181,7 @@ class JarvisService : AccessibilityService() {
 
                     if (uiTree.isBlank()) {
                         Log.w(TAG, "Step $step: Empty UI tree — retrying")
-                        delay(400L) // Was 800ms
+                        delay(400L)
                         continue
                     }
 
@@ -193,7 +193,7 @@ class JarvisService : AccessibilityService() {
                         RelayClient.pushStatusUpdate(status.value, step, currentAction.value)
                         withContext(Dispatchers.Main) { performGlobalAction(GLOBAL_ACTION_BACK) }
                         history.clear()
-                        delay(800L) // Was 1200ms
+                        delay(800L)
                         continue
                     }
 
@@ -230,7 +230,7 @@ class JarvisService : AccessibilityService() {
                             currentAction.value = "FAILED: $errorDetail"
                             break
                         }
-                        delay(1500L) // Was 2000ms
+                        delay(1500L)
                         continue
                     }
                     consecutiveFailures = 0
@@ -249,13 +249,12 @@ class JarvisService : AccessibilityService() {
                         break
                     }
 
-                    // SPEED OPTIMIZED delays — near-human speed
                     val delayMs = when (action.action) {
-                        "TAP" -> actionDelay.coerceAtMost(500L)     // Cap at 500ms
+                        "TAP" -> actionDelay.coerceAtMost(500L)
                         "LONG_PRESS" -> (actionDelay + 200L).coerceAtMost(700L)
                         "SWIPE", "SCROLL" -> (actionDelay + 200L).coerceAtMost(700L)
                         "TYPE" -> (actionDelay - 100L).coerceAtLeast(200L)
-                        "OPEN_APP" -> 1500L  // Was 2500ms
+                        "OPEN_APP" -> 1500L
                         "PRESS_BACK", "PRESS_HOME", "PRESS_RECENTS" -> (actionDelay + 100L).coerceAtMost(600L)
                         else -> actionDelay.coerceAtMost(500L)
                     }
@@ -273,14 +272,13 @@ class JarvisService : AccessibilityService() {
                 RelayClient.mcpActive.value = false
                 RelayClient.mcpSessionActive.value = false
                 RelayClient.pushStatusUpdate(status.value, currentStep.value, currentAction.value)
-                // CRITICAL FIX: Force-hide overlay after task finishes
-                HUDService.forceHide(this@JarvisService)
+                HUDService.forceHide(this@VayuService)
             }
         }
     }
 
     // ════════════════════════════════════════════════
-    //  SCREENSHOT CAPTURE — Optimized for speed
+    //  SCREENSHOT CAPTURE
     // ════════════════════════════════════════════════
 
     private suspend fun captureScreen(): String? = withContext(Dispatchers.Main) {
@@ -308,13 +306,11 @@ class JarvisService : AccessibilityService() {
                                 return
                             }
 
-                            // SPEED: Scale to 1/4 for faster base64 encoding (was 1/3)
                             val newW = (bitmap.width / 4).coerceAtLeast(160)
                             val newH = (bitmap.height / 4).coerceAtLeast(160)
                             val scaled = Bitmap.createScaledBitmap(bitmap, newW, newH, true)
 
                             val baos = ByteArrayOutputStream()
-                            // SPEED: Quality 55 (was 75) — faster encoding, smaller payload
                             scaled.compress(Bitmap.CompressFormat.JPEG, 55, baos)
                             val base64 = Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP)
 
@@ -352,11 +348,11 @@ class JarvisService : AccessibilityService() {
     }
 
     // ════════════════════════════════════════════════
-    //  AUTO-CAPTURE — Faster post-action capture
+    //  AUTO-CAPTURE
     // ════════════════════════════════════════════════
 
     suspend fun autoCapture(): Pair<String?, String?> {
-        delay(80) // Was 150ms — UI settles faster than we think
+        delay(80)
         val b64 = captureScreen()
         val uiTree = withContext(Dispatchers.Main) {
             try { parseUITree(rootInActiveWindow) } catch (e: Exception) { null }
@@ -365,7 +361,7 @@ class JarvisService : AccessibilityService() {
     }
 
     // ════════════════════════════════════════════════
-    //  DIRECT ACTION EXECUTION (for MCP remote control)
+    //  DIRECT ACTION EXECUTION
     // ════════════════════════════════════════════════
 
     fun executeDirectAction(action: String, x: Int, y: Int, x2: Int, y2: Int, text: String, duration: Long = 0L) {
@@ -379,7 +375,7 @@ class JarvisService : AccessibilityService() {
     }
 
     // ════════════════════════════════════════════════
-    //  SEQUENCE EXECUTION — Speed optimized
+    //  SEQUENCE EXECUTION
     // ════════════════════════════════════════════════
 
     suspend fun executeSequence(actions: List<SequenceAction>): Pair<String?, String?> {
@@ -407,15 +403,14 @@ class JarvisService : AccessibilityService() {
                 }
             }
 
-            // SPEED OPTIMIZED delays — near-human speed
             val delayMs = if (sa.delay > 0) sa.delay else when (sa.action) {
-                "TAP" -> 50L        // Was 100ms
-                "LONG_PRESS" -> 300L // Was 400ms
-                "SWIPE", "SCROLL" -> 200L // Was 300ms
-                "TYPE" -> 150L      // Was 250ms
-                "OPEN_APP" -> 1000L // Was 1500ms
-                "PRESS_BACK", "PRESS_HOME", "PRESS_RECENTS" -> 150L // Was 250ms
-                "WAIT" -> 300L      // Was 500L
+                "TAP" -> 50L
+                "LONG_PRESS" -> 300L
+                "SWIPE", "SCROLL" -> 200L
+                "TYPE" -> 150L
+                "OPEN_APP" -> 1000L
+                "PRESS_BACK", "PRESS_HOME", "PRESS_RECENTS" -> 150L
+                "WAIT" -> 300L
                 else -> 100L
             }
             delay(delayMs)
@@ -426,13 +421,12 @@ class JarvisService : AccessibilityService() {
     }
 
     // ════════════════════════════════════════════════
-    //  CHROME URL MACRO — Speed optimized
+    //  CHROME URL MACRO
     // ════════════════════════════════════════════════
 
     suspend fun openChromeUrl(url: String): Pair<String?, String?> {
         mcpState.value = McpCommandState(isExecuting = true, currentCommand = "open_chrome_url", lastAction = "Opening Chrome...")
 
-        // Step 1: Find and open Chrome
         val chromePackage = findChromePackage()
         if (chromePackage != null) {
             withContext(Dispatchers.Main) {
@@ -444,7 +438,6 @@ class JarvisService : AccessibilityService() {
                 }
             }
         } else {
-            // Fallback: use ACTION_VIEW with Chrome package
             withContext(Dispatchers.Main) {
                 try {
                     val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))
@@ -457,16 +450,15 @@ class JarvisService : AccessibilityService() {
                     startActivity(intent)
                 }
             }
-            delay(2000) // Was 3000ms
+            delay(2000)
             mcpState.value = mcpState.value.copy(isExecuting = false)
             return autoCapture()
         }
 
-        delay(1500) // Was 2000ms — Chrome opens fast
+        delay(1500)
 
         mcpState.value = mcpState.value.copy(lastAction = "Tapping URL bar...")
 
-        // Step 2: Find the URL bar in the UI tree and tap it
         val urlBarBounds = withContext(Dispatchers.Main) { findUrlBarBounds() }
         if (urlBarBounds != null) {
             val centerX = (urlBarBounds.left + urlBarBounds.right) / 2
@@ -475,23 +467,21 @@ class JarvisService : AccessibilityService() {
             withContext(Dispatchers.Main) {
                 executeDirectAction("TAP", centerX, centerY, 0, 0, "")
             }
-            delay(500) // Was 800ms — keyboard appears fast
+            delay(500)
 
             mcpState.value = mcpState.value.copy(lastAction = "Typing URL...")
 
-            // Step 3: Type the URL using clipboard paste
             withContext(Dispatchers.Main) {
                 typeWithClipboard(url)
             }
-            delay(300) // Was 500ms
+            delay(300)
 
-            // Step 4: Press Enter
             mcpState.value = mcpState.value.copy(lastAction = "Pressing Enter...")
             withContext(Dispatchers.Main) {
                 pressEnterKey()
             }
 
-            delay(3000) // Was 4000ms — page loads
+            delay(3000)
         } else {
             Log.w(TAG, "Chrome URL bar not found in UI tree, using ACTION_VIEW fallback")
             withContext(Dispatchers.Main) {
@@ -506,7 +496,7 @@ class JarvisService : AccessibilityService() {
                     startActivity(intent)
                 }
             }
-            delay(2000) // Was 3000ms
+            delay(2000)
         }
 
         mcpState.value = mcpState.value.copy(isExecuting = false, lastAction = "Chrome URL done")
@@ -514,12 +504,12 @@ class JarvisService : AccessibilityService() {
     }
 
     // ════════════════════════════════════════════════
-    //  ENHANCED TYPE — Keyboard injection / clipboard paste
+    //  ENHANCED TYPE
     // ════════════════════════════════════════════════
 
     fun typeWithClipboard(text: String) {
         try {
-            val clip = android.content.ClipData.newPlainText("jarvis", text)
+            val clip = android.content.ClipData.newPlainText("vayu", text)
             (getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager)
                 .setPrimaryClip(clip)
 
@@ -697,7 +687,7 @@ class JarvisService : AccessibilityService() {
     }
 
     // ════════════════════════════════════════════════
-    //  ACTION EXECUTOR — Speed optimized
+    //  ACTION EXECUTOR
     // ════════════════════════════════════════════════
 
     private suspend fun executeAction(action: AgentAction) {
@@ -706,7 +696,7 @@ class JarvisService : AccessibilityService() {
                 "TAP" -> {
                     val path = Path().apply { moveTo(action.x.toFloat(), action.y.toFloat()) }
                     val gesture = GestureDescription.Builder()
-                        .addStroke(GestureDescription.StrokeDescription(path, 0, 50)) // Was 80ms
+                        .addStroke(GestureDescription.StrokeDescription(path, 0, 50))
                         .build()
                     dispatchGesture(gesture, null, null)
                     Log.d(TAG, "TAP at (${action.x}, ${action.y})")
@@ -717,7 +707,7 @@ class JarvisService : AccessibilityService() {
                         moveTo(action.x.toFloat(), action.y.toFloat())
                         lineTo(action.x2.toFloat(), action.y2.toFloat())
                     }
-                    val duration = if (action.action == "SCROLL") 400L else 300L // Was 500/400
+                    val duration = if (action.action == "SCROLL") 400L else 300L
                     val gesture = GestureDescription.Builder()
                         .addStroke(GestureDescription.StrokeDescription(path, 0, duration))
                         .build()
@@ -726,41 +716,35 @@ class JarvisService : AccessibilityService() {
                 }
 
                 "TYPE" -> {
-                    // Tap at the coordinates to focus the field
                     val path = Path().apply { moveTo(action.x.toFloat(), action.y.toFloat()) }
                     val tapGesture = GestureDescription.Builder()
                         .addStroke(GestureDescription.StrokeDescription(path, 0, 50))
                         .build()
                     dispatchGesture(tapGesture, null, null)
 
-                    // SPEED FIX: Use coroutine delay instead of Thread.sleep
-                    delay(200) // Was 500ms — minimum for UI to register the tap
+                    delay(200)
 
                     val node = findNodeAt(rootInActiveWindow, action.x, action.y)
                     var typed = false
 
-                    // Detect if this is a WebView/Chrome field (React apps need PASTE)
                     val isWebViewField = isInsideWebView(node)
 
                     if (isWebViewField) {
-                        // ── WebView / Chrome: Use clipboard PASTE ──
                         val focusedNode = findFocusedNode(rootInActiveWindow) ?: node
 
-                        // Clear existing text: select all then delete
                         if (focusedNode != null) {
                             focusedNode.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, Bundle().apply {
                                 putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, 0)
                                 putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, focusedNode.text?.length ?: 0)
                             })
-                            delay(50) // Was 100ms
+                            delay(50)
                             focusedNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, Bundle().apply {
                                 putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, "")
                             })
-                            delay(80) // Was 150ms
+                            delay(80)
                         }
 
-                        // Copy text to clipboard and PASTE
-                        val clip = android.content.ClipData.newPlainText("jarvis", action.text)
+                        val clip = android.content.ClipData.newPlainText("vayu", action.text)
                         (getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager)
                             .setPrimaryClip(clip)
 
@@ -781,7 +765,6 @@ class JarvisService : AccessibilityService() {
                             }
                         }
 
-                        // Last resort: SET_TEXT
                         if (!typed && node != null && node.isEditable) {
                             val args = Bundle().apply {
                                 putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, action.text)
@@ -793,7 +776,6 @@ class JarvisService : AccessibilityService() {
                             }
                         }
                     } else {
-                        // ── Native Android: Use SET_TEXT first ──
                         if (node != null && node.isEditable) {
                             val args = Bundle().apply {
                                 putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, action.text)
@@ -805,10 +787,9 @@ class JarvisService : AccessibilityService() {
                             }
                         }
 
-                        // Fallback: clipboard paste
                         if (!typed) {
                             val focusedNode = findFocusedNode(rootInActiveWindow)
-                            val clip = android.content.ClipData.newPlainText("jarvis", action.text)
+                            val clip = android.content.ClipData.newPlainText("vayu", action.text)
                             (getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager)
                                 .setPrimaryClip(clip)
 
@@ -853,7 +834,7 @@ class JarvisService : AccessibilityService() {
                 "LONG_PRESS" -> {
                     val path = Path().apply { moveTo(action.x.toFloat(), action.y.toFloat()) }
                     val gesture = GestureDescription.Builder()
-                        .addStroke(GestureDescription.StrokeDescription(path, 0, 500)) // Was 600ms
+                        .addStroke(GestureDescription.StrokeDescription(path, 0, 500))
                         .build()
                     dispatchGesture(gesture, null, null)
                     Log.d(TAG, "LONG_PRESS at (${action.x}, ${action.y})")
@@ -881,11 +862,6 @@ class JarvisService : AccessibilityService() {
         return if (root.isEditable || root.isClickable) root else null
     }
 
-    /**
-     * Check if a node is inside a WebView (Chrome/browser).
-     * WebView fields need PASTE instead of SET_TEXT because SET_TEXT
-     * doesn't trigger React's synthetic onChange events.
-     */
     private fun isInsideWebView(node: AccessibilityNodeInfo?): Boolean {
         if (node == null) return false
         var current = node.parent

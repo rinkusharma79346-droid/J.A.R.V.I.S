@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">JARVIS</string>
-    <string name="accessibility_desc">JARVIS AI Agent Brain. Needed to observe and control the screen autonomously.</string>
+    <string name="app_name">V.A.Y.U Agent</string>
+    <string name="accessibility_desc">V.A.Y.U AI Agent — Vision-Assisted Yonder Unit. Needed to observe and control the screen autonomously.</string>
 </resources>

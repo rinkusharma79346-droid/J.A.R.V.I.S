@@ -35,6 +35,9 @@ class MainActivity : AppCompatActivity() {
         // ─── Glow pulse animation on title ───
         startGlowPulse()
 
+        // ─── Configure VayuView state observer ───
+        configureVayuView()
+
         // ─── Permissions button ───
         binding.btnPerms.setOnClickListener {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
@@ -66,20 +69,20 @@ class MainActivity : AppCompatActivity() {
             }
             // Start HUD overlay for local task execution
             startService(Intent(this, HUDService::class.java))
-            JarvisService.startTask(task)
+            VayuService.startTask(task)
         }
 
         // ─── Kill button ───
-        binding.btnStop.setOnClickListener { JarvisService.stopTask() }
+        binding.btnStop.setOnClickListener { VayuService.stopTask() }
 
         // ─── Load last task from memory ───
         val memory = AgentMemory(getSharedPreferences("jarvis_settings", MODE_PRIVATE))
         val lastTask = memory.getLastTask()
         if (lastTask.isNotBlank()) binding.etTask.setText(lastTask)
 
-        // ─── Observe JarvisService flows ───
+        // ─── Observe VayuService flows ───
         lifecycleScope.launch {
-            JarvisService.status.collectLatest { status ->
+            VayuService.status.collectLatest { status ->
                 binding.tvStatus.text = status
                 binding.tvStatus.alpha = 0f
                 binding.tvStatus.animate()
@@ -91,13 +94,13 @@ class MainActivity : AppCompatActivity() {
         }
 
         lifecycleScope.launch {
-            JarvisService.currentStep.collectLatest { step ->
+            VayuService.currentStep.collectLatest { step ->
                 binding.tvStep.text = if (step > 0) "STEP $step" else "IDLE"
             }
         }
 
         lifecycleScope.launch {
-            JarvisService.currentAction.collectLatest { action ->
+            VayuService.currentAction.collectLatest { action ->
                 binding.tvAction.text = action
                 binding.tvAction.alpha = 0f
                 binding.tvAction.animate()
@@ -109,7 +112,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         lifecycleScope.launch {
-            JarvisService.isRunning.collectLatest { running ->
+            VayuService.isRunning.collectLatest { running ->
                 binding.btnExecute.isEnabled = !running
                 binding.btnStop.isEnabled = running
                 binding.btnExecute.alpha = if (running) 0.4f else 1f
@@ -121,6 +124,9 @@ class MainActivity : AppCompatActivity() {
                 } else if (!RelayClient.mcpActive.value) {
                     binding.statusDot.setBackgroundResource(R.drawable.status_dot_idle)
                 }
+
+                // Update VayuView state
+                binding.vayuView.currentState = if (running) VayuView.BotState.WORKING else VayuView.BotState.IDLE
             }
         }
 
@@ -161,13 +167,19 @@ class MainActivity : AppCompatActivity() {
             RelayClient.mcpActive.collectLatest { active ->
                 if (active) {
                     binding.statusDot.setBackgroundResource(R.drawable.status_dot_active)
-                } else if (!JarvisService.isRunning.value) {
+                    binding.vayuView.currentState = VayuView.BotState.WORKING
+                } else if (!VayuService.isRunning.value) {
                     binding.statusDot.setBackgroundResource(R.drawable.status_dot_idle)
+                    binding.vayuView.currentState = VayuView.BotState.IDLE
                 }
             }
         }
 
         updateApiStatus()
+    }
+
+    private fun configureVayuView() {
+        // VayuView is referenced in the layout as a custom view
     }
 
     override fun onResume() {

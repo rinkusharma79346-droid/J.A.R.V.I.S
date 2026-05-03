@@ -1,6 +1,6 @@
-# Contributing to J.A.R.V.I.S.
+# Contributing to V.A.Y.U Agent
 
-First off, thank you for considering contributing to JARVIS! It's people like you that make open-source awesome.
+First off, thank you for considering contributing to V.A.Y.U! It's people like you that make open-source awesome.
 
 ## Ways to Contribute
 
@@ -51,7 +51,7 @@ First off, thank you for considering contributing to JARVIS! It's people like yo
 
 - **Kotlin:** Follow Android Kotlin style guide. Use meaningful variable names.
 - **JavaScript:** Standard style. Use `const`/`let`, avoid `var`.
-- **Comments:** Add comments for complex logic. JARVIS-specific terms should be documented.
+- **Comments:** Add comments for complex logic. V.A.Y.U-specific terms should be documented.
 
 ## Project Structure
 
@@ -71,11 +71,11 @@ J.A.R.V.I.S/
 When filing a bug report, please include:
 
 1. **Android device** and **OS version**
-2. **JARVIS version** (check About in Settings)
+2. **V.A.Y.U version** (check About in Settings)
 3. **API provider and model** you're using
 4. **Steps to reproduce** the issue
 5. **Expected vs actual behavior**
-6. **Logcat output** if available (`adb logcat -s JarvisService`)
+6. **Logcat output** if available (`adb logcat -s VayuService`)
 
 ## Pull Request Guidelines
 

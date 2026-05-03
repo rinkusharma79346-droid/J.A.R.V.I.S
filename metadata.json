@@ -1,6 +1,6 @@
 {
-  "name": "J.A.R.V.I.S.",
-  "description": "Autonomous Android AI Agent — controls your phone screen like a human using accessibility services, AI vision models, and MCP remote control protocol.",
+  "name": "V.A.Y.U Agent",
+  "description": "V.A.Y.U Agent — Vision-Assisted Yonder Unit. Autonomous Android AI agent that controls your phone screen like a human using accessibility services, AI vision models, and MCP remote control protocol.",
   "requestFramePermissions": [],
   "majorCapabilities": [
     "screen-control",

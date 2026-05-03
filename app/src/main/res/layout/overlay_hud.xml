@@ -23,7 +23,7 @@
         android:layout_weight="1"
         android:orientation="vertical">
 
-        <!-- Title row: JARVIS ● MCP -->
+        <!-- Title row: V.A.Y.U ● MCP -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -35,8 +35,8 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="JARVIS"
-                android:textColor="@color/cyan_primary"
+                android:text="V.A.Y.U"
+                android:textColor="@color/orange_primary"
                 android:textSize="12sp"
                 android:fontFamily="monospace"
                 android:textStyle="bold"
@@ -83,9 +83,9 @@
         android:id="@+id/btnKill"
         android:layout_width="wrap_content"
         android:layout_height="32dp"
-        android:text="KILL"
+        android:text="STOP"
         android:background="@drawable/btn_red"
-        android:textColor="@color/white"
+        android:textColor="@color/text_primary"
         android:textSize="10sp"
         android:fontFamily="monospace"
         android:textStyle="bold"

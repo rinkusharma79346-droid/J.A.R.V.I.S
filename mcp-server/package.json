@@ -1,7 +1,7 @@
 {
   "name": "jarvis-mcp-server",
   "version": "4.0.0",
-  "description": "JARVIS MCP Server — Control your JARVIS Android agent from Claude Desktop, Cursor, or any MCP client via HTTP long-polling relay",
+  "description": "V.A.Y.U MCP Server — Control your V.A.Y.U Android agent from Claude Desktop, Cursor, or any MCP client via HTTP long-polling relay",
   "main": "index.js",
   "bin": {
     "jarvis-mcp-server": "./index.js"
@@ -9,8 +9,8 @@
   "scripts": {
     "start": "node index.js"
   },
-  "keywords": ["mcp", "jarvis", "android", "agent", "claude", "cursor"],
-  "author": "JARVIS",
+  "keywords": ["mcp", "vayu", "android", "agent", "claude", "cursor"],
+  "author": "Rinku Sharma",
   "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0"

@@ -22,7 +22,7 @@
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:layout_marginBottom="20dp">
+            android:layout_marginBottom="8dp">
 
             <TextView
                 android:id="@+id/tvApiKeyStatus"
@@ -78,15 +78,15 @@
                 android:contentDescription="Settings"
                 android:padding="8dp"
                 android:scaleType="fitCenter"
-                app:tint="@color/cyan_primary" />
+                app:tint="@color/orange_primary" />
         </LinearLayout>
 
-        <!-- ═══ JARVIS Title with Glow ═══ -->
+        <!-- ═══ V.A.Y.U Title with Glow ═══ -->
         <FrameLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_gravity="center_horizontal"
-            android:layout_marginBottom="24dp">
+            android:layout_marginBottom="12dp">
 
             <ImageView
                 android:id="@+id/ivGlow"
@@ -108,8 +108,8 @@
                     android:id="@+id/tvTitle"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="J.A.R.V.I.S."
-                    android:textColor="@color/cyan_primary"
+                    android:text="V.A.Y.U"
+                    android:textColor="@color/orange_primary"
                     android:textSize="38sp"
                     android:fontFamily="monospace"
                     android:textStyle="bold"
@@ -120,112 +120,87 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="AUTONOMOUS NEURAL ENGINE"
+                    android:text="AGENT"
                     android:textColor="@color/cyan_dim"
-                    android:textSize="9sp"
+                    android:textSize="11sp"
                     android:fontFamily="monospace"
-                    android:letterSpacing="0.35"
+                    android:letterSpacing="0.5"
                     android:layout_marginTop="-2dp" />
             </LinearLayout>
         </FrameLayout>
 
-        <!-- ═══ Status Card ═══ -->
-        <LinearLayout
+        <!-- ═══ Animated V.A.Y.U Bot Face ═══ -->
+        <com.jarvis.agent.VayuView
+            android:id="@+id/vayuView"
+            android:layout_width="200dp"
+            android:layout_height="200dp"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginBottom="8dp" />
+
+        <!-- ═══ Status Text ═══ -->
+        <TextView
+            android:id="@+id/tvStatus"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:background="@drawable/glass_card"
-            android:orientation="vertical"
-            android:padding="20dp"
+            android:text="Ready — Service Disconnected"
+            android:textColor="@color/text_primary"
+            android:textSize="14sp"
+            android:fontFamily="monospace"
+            android:gravity="center"
+            android:layout_marginBottom="4dp" />
+
+        <!-- ═══ Status Indicators ═══ -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center"
+            android:layout_gravity="center_horizontal"
             android:layout_marginBottom="16dp">
 
-            <!-- Section header with status dot -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:layout_marginBottom="14dp">
-
-                <View
-                    android:id="@+id/statusDot"
-                    android:layout_width="8dp"
-                    android:layout_height="8dp"
-                    android:background="@drawable/status_dot_idle"
-                    android:layout_marginEnd="8dp" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="SYSTEM STATUS"
-                    android:textColor="@color/text_dim"
-                    android:textSize="9sp"
-                    android:fontFamily="monospace"
-                    android:letterSpacing="0.25" />
-            </LinearLayout>
+            <View
+                android:id="@+id/statusDot"
+                android:layout_width="8dp"
+                android:layout_height="8dp"
+                android:background="@drawable/status_dot_idle"
+                android:layout_marginEnd="6dp" />
 
             <TextView
-                android:id="@+id/tvStatus"
+                android:id="@+id/tvStep"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Ready — Service Disconnected"
-                android:textColor="@color/white"
-                android:textSize="14sp"
-                android:fontFamily="monospace"
-                android:layout_marginBottom="10dp" />
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical">
-
-                <TextView
-                    android:id="@+id/tvStep"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="IDLE"
-                    android:textColor="@color/cyan_primary"
-                    android:textSize="13sp"
-                    android:fontFamily="monospace"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="50 max"
-                    android:textColor="@color/text_dim"
-                    android:textSize="10sp"
-                    android:fontFamily="monospace" />
-            </LinearLayout>
-
-            <TextView
-                android:id="@+id/tvAction"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="—"
-                android:textColor="@color/cyan_primary"
+                android:text="IDLE"
+                android:textColor="@color/orange_primary"
                 android:textSize="12sp"
                 android:fontFamily="monospace"
-                android:layout_marginTop="8dp"
-                android:maxLines="2"
-                android:ellipsize="end" />
+                android:textStyle="bold"
+                android:layout_marginEnd="12dp" />
 
-            <!-- MCP Relay detail -->
             <TextView
                 android:id="@+id/tvRelayDetail"
-                android:layout_width="match_parent"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text=""
                 android:textColor="@color/gray"
                 android:textSize="10sp"
-                android:fontFamily="monospace"
-                android:layout_marginTop="6dp"
-                android:maxLines="1"
-                android:ellipsize="end" />
+                android:fontFamily="monospace" />
         </LinearLayout>
 
-        <!-- ═══ Task Input Card ═══ -->
+        <!-- ═══ Action Text ═══ -->
+        <TextView
+            android:id="@+id/tvAction"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="—"
+            android:textColor="@color/orange_primary"
+            android:textSize="12sp"
+            android:fontFamily="monospace"
+            android:gravity="center"
+            android:layout_marginBottom="16dp"
+            android:maxLines="2"
+            android:ellipsize="end" />
+
+        <!-- ═══ Task Input Card (Glassmorphism) ═══ -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -237,8 +212,8 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="OBJECTIVE"
-                android:textColor="@color/text_dim"
+                android:text="ENTER YOUR TASK"
+                android:textColor="@color/orange_primary"
                 android:textSize="9sp"
                 android:fontFamily="monospace"
                 android:letterSpacing="0.25"
@@ -249,9 +224,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:minHeight="56dp"
-                android:hint="Enter task for JARVIS..."
+                android:hint="What should V.A.Y.U do?"
                 android:textColorHint="@color/text_dim"
-                android:textColor="@color/white"
+                android:textColor="@color/text_primary"
                 android:background="@drawable/edittext_glass"
                 android:padding="14dp"
                 android:textSize="14sp"
@@ -274,9 +249,9 @@
                 android:layout_width="0dp"
                 android:layout_height="52dp"
                 android:layout_weight="1"
-                android:text="EXECUTE"
-                android:background="@drawable/btn_cyan"
-                android:textColor="#050510"
+                android:text="START TASK"
+                android:background="@drawable/btn_orange"
+                android:textColor="#1A1210"
                 android:textStyle="bold"
                 android:textSize="13sp"
                 android:fontFamily="monospace"
@@ -288,9 +263,9 @@
                 android:layout_width="0dp"
                 android:layout_height="52dp"
                 android:layout_weight="1"
-                android:text="KILL"
+                android:text="STOP"
                 android:background="@drawable/btn_red"
-                android:textColor="@color/white"
+                android:textColor="@color/text_primary"
                 android:textStyle="bold"
                 android:textSize="13sp"
                 android:fontFamily="monospace"
@@ -311,7 +286,7 @@
             android:fontFamily="monospace"
             android:letterSpacing="0.12" />
 
-        <!-- ═══ Bottom Info Bar ═══ -->
+        <!-- ═══ Bottom Info ═══ -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -331,7 +306,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="JARVIS v9.0 · Content Engine"
+                android:text="V.A.Y.U Agent v10.0 · Claude Orange Edition"
                 android:textColor="@color/text_faint"
                 android:textSize="9sp"
                 android:fontFamily="monospace"

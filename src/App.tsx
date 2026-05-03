@@ -48,8 +48,8 @@ export default function App() {
         >
           <div className="glass rounded-full px-6 py-2 flex items-center gap-6 border-b border-white/10 mt-2">
             <div className="flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" style={{ backgroundColor: '#00E5FF' }}></div>
-              <span className="text-[10px] uppercase tracking-widest text-[#00E5FF] font-bold hidden sm:inline">JARVIS Active</span>
+              <div className="w-2 h-2 rounded-full animate-pulse" style={{ backgroundColor: '#E07A4F' }}></div>
+              <span className="text-[10px] uppercase tracking-widest text-[#E07A4F] font-bold hidden sm:inline">V.A.Y.U Active</span>
             </div>
             <div className="h-4 w-[1px] bg-white/20 hidden sm:block"></div>
             <div className="text-[10px] text-white/60 uppercase tracking-wider">Session Time: {formatTime(time)}</div>
@@ -65,8 +65,8 @@ export default function App() {
           transition={{ duration: 0.7, delay: 0.2 }}
           className="flex flex-col items-center mt-20 mb-8 text-center shrink-0"
         >
-          <h1 className="text-4xl md:text-5xl font-black text-white tracking-tighter cyan-glow mb-1">J.A.R.V.I.S.</h1>
-          <p className="text-[#00E5FF]/80 text-[10px] md:text-xs tracking-[0.2em] md:tracking-[0.4em] uppercase font-medium">Autonomous Android Neural Engine</p>
+          <h1 className="text-4xl md:text-5xl font-black text-white tracking-tighter orange-glow mb-1">V.A.Y.U</h1>
+          <p className="text-[#E07A4F]/80 text-[10px] md:text-xs tracking-[0.2em] md:tracking-[0.4em] uppercase font-medium">Autonomous Neural Engine</p>
         </motion.div>
         
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 flex-grow">
@@ -79,8 +79,8 @@ export default function App() {
             <motion.div 
               className="glass rounded-3xl p-6 md:p-8 flex flex-col flex-grow"
               animate={{ 
-                boxShadow: isProcessing ? '0 0 30px 0 rgba(0, 229, 255, 0.4)' : '0 8px 32px 0 rgba(0, 0, 0, 0.8)',
-                borderColor: isProcessing ? 'rgba(0, 229, 255, 0.5)' : 'rgba(255, 255, 255, 0.1)'
+                boxShadow: isProcessing ? '0 0 30px 0 rgba(224, 122, 79, 0.4)' : '0 8px 32px 0 rgba(0, 0, 0, 0.8)',
+                borderColor: isProcessing ? 'rgba(224, 122, 79, 0.5)' : 'rgba(255, 255, 255, 0.1)'
               }}
               transition={{ duration: 0.8, ease: "easeInOut" }}
             >
@@ -90,7 +90,7 @@ export default function App() {
                   <p className="text-white/40 text-sm">ReAct Loop Execution</p>
                 </div>
                 <div className="text-right">
-                  <div className="text-2xl font-mono text-[#00E5FF] font-bold">
+                  <div className="text-2xl font-mono text-[#E07A4F] font-bold">
                     Step {step}<span className="text-white/20">/50</span>
                   </div>
                 </div>
@@ -99,7 +99,7 @@ export default function App() {
               <div className="bg-black/40 rounded-2xl border border-white/5 p-4 md:p-6 flex-grow mb-6 overflow-y-auto">
                 <div className="flex gap-4 items-start">
                   <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center shrink-0">
-                    <svg className="w-5 h-5 text-[#00E5FF]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-5 h-5 text-[#E07A4F]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
                     </svg>
                   </div>
@@ -116,7 +116,7 @@ export default function App() {
                   transition={{ duration: 0.4 }}
                 >
                   <div className="flex items-center gap-3 mb-4 flex-wrap">
-                    <div className="px-2 py-1 bg-[#00E5FF]/10 border border-[#00E5FF]/30 rounded text-[10px] text-[#00E5FF] font-bold uppercase">
+                    <div className="px-2 py-1 bg-[#E07A4F]/10 border border-[#E07A4F]/30 rounded text-[10px] text-[#E07A4F] font-bold uppercase">
                       Action: Tap
                     </div>
                     <span className="text-white/60 text-sm italic">Target: (x: 480, y: 1220)</span>
@@ -131,9 +131,9 @@ export default function App() {
                 <input
                   type="text"
                   placeholder="Override next command..."
-                  className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-4 pr-24 text-white placeholder:text-white/20 focus:outline-none focus:border-[#00E5FF]/50 transition-all font-sans text-sm md:text-base"
+                  className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-4 pr-24 text-white placeholder:text-white/20 focus:outline-none focus:border-[#E07A4F]/50 transition-all font-sans text-sm md:text-base"
                 />
-                <button className="absolute right-2 top-2 bottom-2 bg-[#00E5FF] px-4 md:px-6 rounded-xl text-black font-bold text-xs md:text-sm uppercase tracking-wider hover:opacity-90 transition-opacity cursor-pointer">
+                <button className="absolute right-2 top-2 bottom-2 bg-[#E07A4F] px-4 md:px-6 rounded-xl text-black font-bold text-xs md:text-sm uppercase tracking-wider hover:opacity-90 transition-opacity cursor-pointer">
                   Send
                 </button>
               </div>
@@ -159,7 +159,7 @@ export default function App() {
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-white/40 text-sm">API Latency</span>
-                  <span className="text-[#00E5FF] text-sm font-mono">142ms</span>
+                  <span className="text-[#E07A4F] text-sm font-mono">142ms</span>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-white/40 text-sm">Context Window</span>
@@ -176,23 +176,23 @@ export default function App() {
               <h3 className="text-white/60 text-[11px] uppercase tracking-widest font-bold mb-4 shrink-0">Real-time Logs</h3>
               <div className="space-y-3 font-mono text-[10px] leading-tight overflow-y-auto pr-2" style={{ maxHeight: '200px' }}>
                 <div className="flex gap-2 text-white/40">
-                  <span className="text-cyan-600">[{formatTime(time)}]</span>
+                  <span className="text-[#C4603A]">[{formatTime(time)}]</span>
                   <span>Parsing UI Tree (82 nodes detected)</span>
                 </div>
                 <div className="flex gap-2 text-white/40">
-                  <span className="text-cyan-600">[{formatTime(time)}]</span>
+                  <span className="text-[#C4603A]">[{formatTime(time)}]</span>
                   <span>Capturing display buffer (Display: 0)</span>
                 </div>
                 <div className="flex gap-2 text-emerald-500">
-                  <span className="text-cyan-600">[{formatTime(time > 1 ? time - 1 : 0)}]</span>
+                  <span className="text-[#C4603A]">[{formatTime(time > 1 ? time - 1 : 0)}]</span>
                   <span>Gemini decision: TAP @ (480, 1220)</span>
                 </div>
                 <div className="flex gap-2 text-white/40">
-                  <span className="text-cyan-600">[{formatTime(time > 1 ? time - 1 : 0)}]</span>
+                  <span className="text-[#C4603A]">[{formatTime(time > 1 ? time - 1 : 0)}]</span>
                   <span>Gesture dispatched: Stroke(0ms, 100ms)</span>
                 </div>
                 <div className="flex gap-2 text-yellow-500">
-                  <span className="text-cyan-600">[{formatTime(time > 2 ? time - 2 : 0)}]</span>
+                  <span className="text-[#C4603A]">[{formatTime(time > 2 ? time - 2 : 0)}]</span>
                   <span>Waiting for window change event...</span>
                 </div>
               </div>

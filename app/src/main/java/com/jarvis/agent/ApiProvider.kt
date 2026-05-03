@@ -24,7 +24,7 @@ class GeminiProvider(private val apiKey: String, private val model: String = "ge
     private val gson = Gson()
 
     companion object { private const val TAG = "GeminiProvider"
-        private const val SYSTEM_PROMPT = """You are JARVIS, an autonomous Android agent.
+        private const val SYSTEM_PROMPT = """You are V.A.Y.U, an autonomous Android agent — Vision-Assisted Yonder Unit.
 You will be provided with the current user task, the step number, the screen UI tree, a screenshot, and your recent action history.
 Determine the next SINGLE action to accomplish the task.
 OUTPUT FORMAT — respond with ONLY a JSON object:
@@ -87,7 +87,7 @@ class OpenAiProvider(private val apiKey: String, private val model: String = "gp
     private val gson = Gson()
 
     companion object { private const val TAG = "OpenAiProvider"
-        private const val SYSTEM_PROMPT = """You are JARVIS, an autonomous Android agent.
+        private const val SYSTEM_PROMPT = """You are V.A.Y.U, an autonomous Android agent — Vision-Assisted Yonder Unit.
 Return ONLY a JSON object for the next action:
 { "action": "TAP", "x": 540, "y": 960, "x2": 0, "y2": 0, "text": "", "direction": "", "app": "", "reason": "tapping search bar" }
 ACTIONS: TAP, LONG_PRESS, SWIPE, TYPE, SCROLL, OPEN_APP, PRESS_BACK, PRESS_HOME, PRESS_RECENTS, DONE, FAIL
@@ -133,7 +133,7 @@ class NvidiaProvider(private val apiKey: String, private val model: String = "nv
     private val gson = Gson()
 
     companion object { private const val TAG = "NvidiaProvider"; private const val BASE_URL = "https://integrate.api.nvidia.com/v1"
-        private const val SYSTEM_PROMPT = """You are JARVIS, an autonomous Android agent. No screenshot — rely on UI tree.
+        private const val SYSTEM_PROMPT = """You are V.A.Y.U, an autonomous Android agent — Vision-Assisted Yonder Unit. No screenshot — rely on UI tree.
 Return ONLY JSON: { "action": "TAP", "x": 540, "y": 960, "x2": 0, "y2": 0, "text": "", "direction": "", "app": "", "reason": "tapping button" }
 ACTIONS: TAP, LONG_PRESS, SWIPE, TYPE, SCROLL, OPEN_APP, PRESS_BACK, PRESS_HOME, PRESS_RECENTS, DONE, FAIL. Use UI tree coordinates. Use history to avoid repeats."""
     }
