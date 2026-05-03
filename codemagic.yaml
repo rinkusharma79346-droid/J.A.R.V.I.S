@@ -7,7 +7,7 @@ workflows:
     environment:
       java: 17
       vars:
-        GEMINI_API_KEY: "AIzaSyCIz3Z0T8LwZT5VQcDaL_dgmCKIRySL5MY"
+        GEMINI_API_KEY: ""
 
     scripts:
       - name: Set up local.properties

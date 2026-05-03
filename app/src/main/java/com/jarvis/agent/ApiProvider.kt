@@ -167,10 +167,10 @@ ACTIONS: TAP, LONG_PRESS, SWIPE, TYPE, SCROLL, OPEN_APP, PRESS_BACK, PRESS_HOME,
 
 object ProviderFactory {
     fun create(config: ProviderConfig): ApiProvider = when (config.provider) {
-        "gemini" -> GeminiProvider(config.apiKey.ifBlank { "AIzaSyCIz3Z0T8LwZT5VQcDaL_dgmCKIRySL5MY" }, config.model.ifBlank { "gemini-2.0-flash" })
+        "gemini" -> GeminiProvider(config.apiKey, config.model.ifBlank { "gemini-2.0-flash" })
         "openai" -> OpenAiProvider(config.apiKey, config.model.ifBlank { "gpt-4o" }, "https://api.openai.com/v1")
         "nvidia" -> NvidiaProvider(config.apiKey, config.model.ifBlank { "nvidia/llama-3.1-nemotron-70b-instruct" })
         "custom" -> OpenAiProvider(config.apiKey, config.model.ifBlank { "default" }, config.baseUrl.ifBlank { "https://api.openai.com/v1" })
-        else -> GeminiProvider(config.apiKey.ifBlank { "AIzaSyCIz3Z0T8LwZT5VQcDaL_dgmCKIRySL5MY" }, "gemini-2.0-flash")
+        else -> GeminiProvider(config.apiKey, "gemini-2.0-flash")
     }
 }

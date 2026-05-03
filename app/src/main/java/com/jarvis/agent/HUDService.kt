@@ -170,7 +170,7 @@ class HUDService : Service() {
 
         serviceScope.launch {
             JarvisService.currentStep.collectLatest { step ->
-                tvHudStep.text = if (step > 0) "Step $step/50" else ""
+                tvHudStep.text = if (step > 0) "Step $step" else ""
             }
         }
 

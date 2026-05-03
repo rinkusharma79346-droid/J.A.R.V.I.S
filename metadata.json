@@ -1,6 +1,12 @@
 {
-  "name": "",
-  "description": "",
+  "name": "J.A.R.V.I.S.",
+  "description": "Autonomous Android AI Agent — controls your phone screen like a human using accessibility services, AI vision models, and MCP remote control protocol.",
   "requestFramePermissions": [],
-  "majorCapabilities": []
+  "majorCapabilities": [
+    "screen-control",
+    "ai-vision",
+    "mcp-remote-control",
+    "gesture-execution",
+    "app-automation"
+  ]
 }

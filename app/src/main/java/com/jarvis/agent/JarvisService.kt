@@ -700,7 +700,7 @@ class JarvisService : AccessibilityService() {
     //  ACTION EXECUTOR — Speed optimized
     // ════════════════════════════════════════════════
 
-    private fun executeAction(action: AgentAction) {
+    private suspend fun executeAction(action: AgentAction) {
         try {
             when (action.action) {
                 "TAP" -> {
@@ -734,8 +734,7 @@ class JarvisService : AccessibilityService() {
                     dispatchGesture(tapGesture, null, null)
 
                     // SPEED FIX: Use coroutine delay instead of Thread.sleep
-                    // Thread.sleep(500) blocks the accessibility service thread!
-                    Thread.sleep(200) // Was 500ms — minimum for UI to register the tap
+                    delay(200) // Was 500ms — minimum for UI to register the tap
 
                     val node = findNodeAt(rootInActiveWindow, action.x, action.y)
                     var typed = false
@@ -753,11 +752,11 @@ class JarvisService : AccessibilityService() {
                                 putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, 0)
                                 putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, focusedNode.text?.length ?: 0)
                             })
-                            Thread.sleep(50) // Was 100ms
+                            delay(50) // Was 100ms
                             focusedNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, Bundle().apply {
                                 putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, "")
                             })
-                            Thread.sleep(80) // Was 150ms
+                            delay(80) // Was 150ms
                         }
 
                         // Copy text to clipboard and PASTE
