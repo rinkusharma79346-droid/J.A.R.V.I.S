@@ -6,21 +6,49 @@
 
 **Autonomous Android Neural Engine**
 
-<p>
-  <img src="https://img.shields.io/badge/Android-30+-green?logo=android" alt="Min SDK" />
-  <img src="https://img.shields.io/badge/Kotlin-1.9.22-purple?logo=kotlin" alt="Kotlin" />
-  <img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License" />
-  <img src="https://img.shields.io/badge/MCP-Protocol-cyan" alt="MCP" />
-  <img src="https://img.shields.io/badge/Version-9.0.0-orange" alt="Version" />
-</p>
+<img src="https://img.shields.io/badge/Android-30+-green?logo=android" alt="Min SDK" />
+<img src="https://img.shields.io/badge/Kotlin-1.9.22-purple?logo=kotlin" alt="Kotlin" />
+<img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License" />
+<img src="https://img.shields.io/badge/MCP-Protocol-cyan" alt="MCP" />
+<img src="https://img.shields.io/badge/Version-9.0.0-orange" alt="Version" />
 
-<p>
-  <b>JARVIS</b> is an autonomous Android AI agent that controls your phone screen like a human.
-  It uses AI vision models (Gemini, OpenAI, NVIDIA) to analyze screenshots and UI trees,
-  then decides and executes touch, swipe, and type actions to complete tasks autonomously.
-</p>
+<i>An AI agent that controls your Android phone like a human — taps, swipes, types, and navigates autonomously using vision models. Now with MCP remote control from Claude Desktop.</i>
+
+<br/><br/>
+
+**How it works:** Give JARVIS a task like *"Find the best Italian restaurant in Manhattan and save the address to my notes"* — it reads the screen, thinks, and acts. All by itself.
+
+<br/>
+
+<img src="https://img.shields.io/badge/claude--desktop-MCP%20Ready-9cf?logo=anthropic" alt="Claude Desktop" />
+<img src="https://img.shields.io/badge/cursor-MCP%20Ready-blue?logo=cursor" alt="Cursor" />
+<img src="https://img.shields.io/badge/gemini-2.0-flash-blue?logo=google" alt="Gemini" />
+<img src="https://img.shields.io/badge/openai-gpt--4o-green?logo=openai" alt="OpenAI" />
+
+<br/><br/>
+
+<a href="https://github.com/rinkusharma79346-droid/J.A.R.V.I.S/stargazers">
+  <img src="https://reporoster.com/stars/dark/rinkusharma79346-droid/J.A.R.V.I.S" alt="Stargazers" />
+</a>
 
 </div>
+
+---
+
+## Why JARVIS?
+
+**Most AI agents live in chat windows.** JARVIS lives on your phone screen.
+
+Instead of just *talking* about tasks, JARVIS actually *does* them:
+
+- "Open WhatsApp and send 'I'll be there in 5 min' to Mom" — **done**
+- "Go to YouTube, search for 'Kotlin coroutines tutorial', and watch the first result" — **done**
+- "Open Chrome, go to amazon.com, and add wireless earbuds to my cart" — **done**
+- "Take a screenshot and send it to my email" — **done**
+
+It sees your screen through accessibility services, uses AI vision to understand what's happening, and performs gestures just like a human finger.
+
+**Plus:** Control your phone remotely from Claude Desktop or Cursor IDE using the Model Context Protocol (MCP). An AI on your computer can now see and control your phone.
 
 ---
 
@@ -309,25 +337,27 @@ The `render.yaml` file configures the relay server for one-click deployment on R
 
 ---
 
+## Star History
+
+<a href="https://star-history.com/#rinkusharma79346-droid/J.A.R.V.I.S&Date">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=rinkusharma79346-droid/J.A.R.V.I.S&type=Date&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=rinkusharma79346-droid/J.A.R.V.I.S&type=Date" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=rinkusharma79346-droid/J.A.R.V.I.S&type=Date" />
+ </picture>
+</a>
+
+---
+
+## Contributing
+
+Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+---
+
 ## License
 
 This project is licensed under the Apache License 2.0 — see the [LICENSE](LICENSE) file for details.
-
-```
-Copyright 2024 Rinku Sharma
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-```
 
 ---
 
@@ -335,8 +365,8 @@ limitations under the License.
 
 **Built with passion by [Rinku Sharma](https://github.com/rinkusharma79346-droid)**
 
-<p>
-  <i>"Just A Rather Very Intelligent System"</i>
-</p>
+<p><i>"Just A Rather Very Intelligent System"</i></p>
+
+<p>If you find JARVIS useful, consider giving it a ⭐ — it helps more than you think!</p>
 
 </div>
