@@ -1,8 +1,8 @@
 services:
   - type: web
-    name: J-A-R-V-I-S
+    name: V-A-Y-U-Relay
     runtime: node
-    rootDir: jarvis-relay
+    rootDir: vayu-relay
     buildCommand: npm install
     startCommand: node server.js
     plan: free

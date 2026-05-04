@@ -1,5 +1,5 @@
 /**
- * JARVIS MCP Relay Server v4.2 — HTTP Long-Polling + MCP SSE + Streamable HTTP
+ * V.A.Y.U MCP Relay Server v4.2 — HTTP Long-Polling + MCP SSE + Streamable HTTP
  *
  * Supports Claude.ai remote MCP connections via:
  *   - SSE transport: GET /sse + POST /messages (legacy, widely supported)
@@ -349,7 +349,7 @@ setInterval(() => {
 // ─── Root endpoint ───
 app.get('/', (req, res) => {
   res.json({
-    name: 'JARVIS MCP Relay Server',
+    name: 'V.A.Y.U MCP Relay Server',
     version: '6.0.0',
     protocol: 'HTTP Long-Polling + MCP SSE + Streamable HTTP',
     features: ['auto-capture', 'sequence-commands', 'chrome-url-macro', 'content-workflows', 'mcp-sse', 'mcp-streamable-http'],
@@ -388,12 +388,12 @@ try {
   // ─── MCP Tool Definitions ───
   const MCP_TOOLS = [
     {
-      name: 'jarvis_look',
+      name: 'vayu_look',
       description: 'Observe the current phone screen. Captures screenshot AND UI tree. Use this FIRST to understand what\'s on screen before taking any action.',
       inputSchema: { type: 'object', properties: {} },
     },
     {
-      name: 'jarvis_tap',
+      name: 'vayu_tap',
       description: 'Tap the phone screen at specific coordinates. Auto-captures screenshot + UI tree after tapping.',
       inputSchema: {
         type: 'object',
@@ -405,7 +405,7 @@ try {
       },
     },
     {
-      name: 'jarvis_swipe',
+      name: 'vayu_swipe',
       description: 'Swipe on the phone screen from one point to another. Auto-captures screenshot.',
       inputSchema: {
         type: 'object',
@@ -420,7 +420,7 @@ try {
       },
     },
     {
-      name: 'jarvis_long_press',
+      name: 'vayu_long_press',
       description: 'Long press at specific coordinates. Auto-captures screenshot.',
       inputSchema: {
         type: 'object',
@@ -432,7 +432,7 @@ try {
       },
     },
     {
-      name: 'jarvis_type_text',
+      name: 'vayu_type_text',
       description: 'Type text into a field at specific coordinates. Uses clipboard paste for WebView/React compatibility. Auto-captures screenshot.',
       inputSchema: {
         type: 'object',
@@ -445,22 +445,22 @@ try {
       },
     },
     {
-      name: 'jarvis_press_back',
+      name: 'vayu_press_back',
       description: 'Press the Android back button. Auto-captures screenshot.',
       inputSchema: { type: 'object', properties: {} },
     },
     {
-      name: 'jarvis_press_home',
+      name: 'vayu_press_home',
       description: 'Press the Android home button. Auto-captures screenshot.',
       inputSchema: { type: 'object', properties: {} },
     },
     {
-      name: 'jarvis_press_recents',
+      name: 'vayu_press_recents',
       description: 'Press the Android recents/overview button. Auto-captures screenshot.',
       inputSchema: { type: 'object', properties: {} },
     },
     {
-      name: 'jarvis_open_app',
+      name: 'vayu_open_app',
       description: 'Open an app on the phone by name or package name. Auto-captures screenshot.',
       inputSchema: {
         type: 'object',
@@ -471,7 +471,7 @@ try {
       },
     },
     {
-      name: 'jarvis_open_url',
+      name: 'vayu_open_url',
       description: 'Open a URL in Chrome browser. Auto-captures screenshot after page loads.',
       inputSchema: {
         type: 'object',
@@ -482,7 +482,7 @@ try {
       },
     },
     {
-      name: 'jarvis_open_chrome_url',
+      name: 'vayu_open_chrome_url',
       description: 'FAST MACRO: Opens Chrome, types URL, presses Enter — all on-phone with zero round-trips. Fastest way to navigate.',
       inputSchema: {
         type: 'object',
@@ -493,7 +493,7 @@ try {
       },
     },
     {
-      name: 'jarvis_sequence',
+      name: 'vayu_sequence',
       description: 'Execute multiple actions in sequence with a single command. MUCH FASTER than individual commands. Auto-captures screenshot after all actions complete.',
       inputSchema: {
         type: 'object',
@@ -522,33 +522,33 @@ try {
       },
     },
     {
-      name: 'jarvis_screenshot',
+      name: 'vayu_screenshot',
       description: 'Capture a screenshot from the phone. Returns base64 JPEG.',
       inputSchema: { type: 'object', properties: {} },
     },
     {
-      name: 'jarvis_ui_tree',
+      name: 'vayu_ui_tree',
       description: 'Get the current UI tree from the phone.',
       inputSchema: { type: 'object', properties: {} },
     },
     {
-      name: 'jarvis_status',
-      description: 'Get the current status of your JARVIS agent.',
+      name: 'vayu_status',
+      description: 'Get the current status of your V.A.Y.U agent.',
       inputSchema: { type: 'object', properties: {} },
     },
     {
-      name: 'jarvis_kill',
-      description: 'Kill the currently running task on JARVIS.',
+      name: 'vayu_kill',
+      description: 'Kill the currently running task on V.A.Y.U.',
       inputSchema: { type: 'object', properties: {} },
     },
     {
-      name: 'jarvis_list_apps',
-      description: 'List all installed apps on the JARVIS device.',
+      name: 'vayu_list_apps',
+      description: 'List all installed apps on the V.A.Y.U device.',
       inputSchema: { type: 'object', properties: {} },
     },
     {
-      name: 'jarvis_devices',
-      description: 'List all JARVIS devices connected to the relay server.',
+      name: 'vayu_devices',
+      description: 'List all V.A.Y.U devices connected to the relay server.',
       inputSchema: { type: 'object', properties: {} },
     },
 
@@ -558,7 +558,7 @@ try {
     // ═══════════════════════════════════════════════════════════
 
     {
-      name: 'jarvis_create_image',
+      name: 'vayu_create_image',
       description: 'CONTENT WORKFLOW: Generate AI image → download → view. Opens an AI image generator (Google Flow Studios, Ideogram, etc.), enters the prompt, and waits for the image to generate. FAST: Uses sequence commands to minimize round-trips.',
       inputSchema: {
         type: 'object',
@@ -570,7 +570,7 @@ try {
       },
     },
     {
-      name: 'jarvis_create_video',
+      name: 'vayu_create_video',
       description: 'CONTENT WORKFLOW: Generate AI video clip. Opens an AI video generator (Google Veo, Runway, etc.), enters the prompt, and waits for the video. Returns screenshot of the result.',
       inputSchema: {
         type: 'object',
@@ -582,7 +582,7 @@ try {
       },
     },
     {
-      name: 'jarvis_edit_in_capcut',
+      name: 'vayu_edit_in_capcut',
       description: 'CONTENT WORKFLOW: Open CapCut with a specific project or start new edit. Opens CapCut app and navigates to create/edit mode.',
       inputSchema: {
         type: 'object',
@@ -593,7 +593,7 @@ try {
       },
     },
     {
-      name: 'jarvis_post_content',
+      name: 'vayu_post_content',
       description: 'CONTENT WORKFLOW: Post content to social media (YouTube, Instagram, etc.). Opens the app, navigates to create post, and fills in the content. Returns screenshot for review.',
       inputSchema: {
         type: 'object',
@@ -606,7 +606,7 @@ try {
       },
     },
     {
-      name: 'jarvis_quick_sequence',
+      name: 'vayu_quick_sequence',
       description: 'FAST: Execute a predefined content creation sequence. Combines common multi-step workflows into one command. Available workflows: "open_and_prompt" (open URL + type prompt + submit), "download_and_save" (long press + save image), "scroll_and_find" (scroll down to find element by text).',
       inputSchema: {
         type: 'object',
@@ -626,7 +626,7 @@ try {
   // ─── Helper: Create a new MCP server instance ───
   function createMcpServer() {
     const server = new McpServer(
-      { name: 'jarvis-mcp-server', version: '6.0.0' },
+      { name: 'vayu-mcp-server', version: '6.0.0' },
       { capabilities: { tools: {} } }
     );
 
@@ -638,62 +638,62 @@ try {
       const { name, arguments: args } = request.params;
       try {
         switch (name) {
-          case 'jarvis_tap': {
+          case 'vayu_tap': {
             const r = await mcpSendCommand('tap', { x: args?.x, y: args?.y });
             return r.isError ? r : mcpFormatCapture(r, `tap(${args?.x}, ${args?.y})`);
           }
-          case 'jarvis_swipe': {
+          case 'vayu_swipe': {
             const r = await mcpSendCommand('swipe', { x: args?.x, y: args?.y, x2: args?.x2, y2: args?.y2, duration: args?.duration });
             return r.isError ? r : mcpFormatCapture(r, `swipe(${args?.x},${args?.y} → ${args?.x2},${args?.y2})`);
           }
-          case 'jarvis_long_press': {
+          case 'vayu_long_press': {
             const r = await mcpSendCommand('long_press', { x: args?.x, y: args?.y });
             return r.isError ? r : mcpFormatCapture(r, `long_press(${args?.x}, ${args?.y})`);
           }
-          case 'jarvis_type_text': {
+          case 'vayu_type_text': {
             const r = await mcpSendCommand('type_text', { x: args?.x, y: args?.y, text: args?.text });
             return r.isError ? r : mcpFormatCapture(r, `type("${args?.text?.substring(0, 50)}")`);
           }
-          case 'jarvis_press_back': {
+          case 'vayu_press_back': {
             const r = await mcpSendCommand('press_back');
             return r.isError ? r : mcpFormatCapture(r, 'press_back');
           }
-          case 'jarvis_press_home': {
+          case 'vayu_press_home': {
             const r = await mcpSendCommand('press_home');
             return r.isError ? r : mcpFormatCapture(r, 'press_home');
           }
-          case 'jarvis_press_recents': {
+          case 'vayu_press_recents': {
             const r = await mcpSendCommand('press_recents');
             return r.isError ? r : mcpFormatCapture(r, 'press_recents');
           }
-          case 'jarvis_open_app': {
+          case 'vayu_open_app': {
             const r = await mcpSendCommand('open_app', { app: args?.app });
             return r.isError ? r : mcpFormatCapture(r, `open_app(${args?.app})`);
           }
-          case 'jarvis_open_url': {
+          case 'vayu_open_url': {
             const r = await mcpSendCommand('open_url', { url: args?.url });
             return r.isError ? r : mcpFormatCapture(r, `open_url(${args?.url})`);
           }
-          case 'jarvis_open_chrome_url': {
+          case 'vayu_open_chrome_url': {
             const r = await mcpSendCommand('open_chrome_url', { url: args?.url });
             return r.isError ? r : mcpFormatCapture(r, `open_chrome_url(${args?.url})`);
           }
-          case 'jarvis_sequence': {
+          case 'vayu_sequence': {
             const r = await mcpSendCommand('sequence', { actions: args?.actions });
             return r.isError ? r : mcpFormatCapture(r, `sequence(${args?.actions?.length} actions)`);
           }
-          case 'jarvis_screenshot': {
+          case 'vayu_screenshot': {
             const r = await mcpSendCommand('screenshot');
             if (r.isError) return r;
             const p = r.raw || {};
             if (p.base64) return { content: [{ type: 'image', data: p.base64, mimeType: p.mimeType || 'image/jpeg' }, { type: 'text', text: `Screenshot from device: ${p.deviceId || 'unknown'}` }] };
             return mcpFormatSimple(r);
           }
-          case 'jarvis_ui_tree': {
+          case 'vayu_ui_tree': {
             const r = await mcpSendCommand('ui_tree');
             return r.isError ? r : mcpFormatSimple(r);
           }
-          case 'jarvis_look': {
+          case 'vayu_look': {
             const r = await mcpSendCommand('screenshot_and_ui');
             if (r.isError) return r;
             const p = r.raw || {};
@@ -702,33 +702,33 @@ try {
             if (p.uiTree && p.uiTree.length > 10) c.push({ type: 'text', text: `UI Tree:\n${p.uiTree}` });
             return c.length > 0 ? { content: c } : mcpFormatSimple(r);
           }
-          case 'jarvis_status': {
+          case 'vayu_status': {
             const r = await mcpSendCommand('status');
             return r.isError ? r : mcpFormatSimple(r);
           }
-          case 'jarvis_kill': {
+          case 'vayu_kill': {
             const r = await mcpSendCommand('kill');
             return r.isError ? r : mcpFormatSimple(r);
           }
-          case 'jarvis_list_apps': {
+          case 'vayu_list_apps': {
             const r = await mcpSendCommand('list_apps');
             return r.isError ? r : mcpFormatSimple(r);
           }
-          case 'jarvis_devices': {
+          case 'vayu_devices': {
             const deviceList = [];
             for (const [id, dev] of devices) {
               const isStale = Date.now() - dev.lastSeen > DEVICE_STALE_MS;
               const status = statusUpdates.get(id);
               deviceList.push(`${isStale ? '[OFFLINE]' : '[ONLINE]'} ${id}\n   Model: ${dev.info.model}\n   Android: ${dev.info.androidVersion}\n   Status: ${status ? status.status : 'Idle'}`);
             }
-            return { content: [{ type: 'text', text: deviceList.length > 0 ? deviceList.join('\n\n') : 'No JARVIS devices connected.' }] };
+            return { content: [{ type: 'text', text: deviceList.length > 0 ? deviceList.join('\n\n') : 'No V.A.Y.U devices connected.' }] };
           }
 
           // ═══════════════════════════════════════════════════════
           // CONTENT CREATION WORKFLOW HANDLERS
           // ═══════════════════════════════════════════════════════
 
-          case 'jarvis_create_image': {
+          case 'vayu_create_image': {
             // Step 1: Open the AI image generator URL
             const openR = await mcpSendCommand('open_chrome_url', { url: args?.url });
             if (openR.isError) return openR;
@@ -738,11 +738,11 @@ try {
             const lookData = lookR.raw || {};
             const resultContent = [];
             if (lookData.base64) resultContent.push({ type: 'image', data: lookData.base64, mimeType: lookData.mimeType || 'image/jpeg' });
-            resultContent.push({ type: 'text', text: `Opened ${args?.url}. Now look at the screen and find the prompt input field, then use jarvis_type_text + jarvis_tap to submit. UI Tree:\n${lookData.uiTree || 'N/A'}` });
+            resultContent.push({ type: 'text', text: `Opened ${args?.url}. Now look at the screen and find the prompt input field, then use vayu_type_text + vayu_tap to submit. UI Tree:\n${lookData.uiTree || 'N/A'}` });
             return { content: resultContent };
           }
 
-          case 'jarvis_create_video': {
+          case 'vayu_create_video': {
             const openR = await mcpSendCommand('open_chrome_url', { url: args?.url });
             if (openR.isError) return openR;
             const lookR = await mcpSendCommand('screenshot_and_ui');
@@ -750,11 +750,11 @@ try {
             const lookData = lookR.raw || {};
             const resultContent = [];
             if (lookData.base64) resultContent.push({ type: 'image', data: lookData.base64, mimeType: lookData.mimeType || 'image/jpeg' });
-            resultContent.push({ type: 'text', text: `Opened ${args?.url} for video generation. Find the prompt field and use jarvis_type_text to enter your prompt. UI Tree:\n${lookData.uiTree || 'N/A'}` });
+            resultContent.push({ type: 'text', text: `Opened ${args?.url} for video generation. Find the prompt field and use vayu_type_text to enter your prompt. UI Tree:\n${lookData.uiTree || 'N/A'}` });
             return { content: resultContent };
           }
 
-          case 'jarvis_edit_in_capcut': {
+          case 'vayu_edit_in_capcut': {
             const openR = await mcpSendCommand('open_app', { app: 'CapCut' });
             if (openR.isError) return openR;
             // Wait for CapCut to load
@@ -768,7 +768,7 @@ try {
             return { content: resultContent };
           }
 
-          case 'jarvis_post_content': {
+          case 'vayu_post_content': {
             const appMap = { youtube: 'YouTube', instagram: 'Instagram', twitter: 'X', tiktok: 'TikTok' };
             const appName = appMap[args?.platform] || args?.platform;
             const openR = await mcpSendCommand('open_app', { app: appName });
@@ -783,7 +783,7 @@ try {
             return { content: resultContent };
           }
 
-          case 'jarvis_quick_sequence': {
+          case 'vayu_quick_sequence': {
             const workflow = args?.workflow;
             if (workflow === 'open_and_prompt') {
               // Open URL, then type prompt, then tap submit (3 steps in one)
@@ -794,7 +794,7 @@ try {
               const lookData = lookR.raw || {};
               const resultContent = [];
               if (lookData.base64) resultContent.push({ type: 'image', data: lookData.base64, mimeType: lookData.mimeType || 'image/jpeg' });
-              resultContent.push({ type: 'text', text: `URL opened. Now find the prompt input field coordinates and use jarvis_type_text to enter: "${args?.prompt || ''}". Then find the submit/generate button. UI Tree:\n${lookData.uiTree || 'N/A'}` });
+              resultContent.push({ type: 'text', text: `URL opened. Now find the prompt input field coordinates and use vayu_type_text to enter: "${args?.prompt || ''}". Then find the submit/generate button. UI Tree:\n${lookData.uiTree || 'N/A'}` });
               return { content: resultContent };
             } else if (workflow === 'download_and_save') {
               // Long press on image, then find Save option
@@ -882,7 +882,7 @@ try {
 
     if (!targetDevice) {
       return {
-        content: [{ type: 'text', text: 'No JARVIS device has ever connected to this relay server. Open the JARVIS app on your phone and enable MCP Relay in Settings.' }],
+        content: [{ type: 'text', text: 'No V.A.Y.U device has ever connected to this relay server. Open the V.A.Y.U app on your phone and enable MCP Relay in Settings.' }],
         isError: true,
       };
     }
@@ -915,7 +915,7 @@ try {
     }
 
     return {
-      content: [{ type: 'text', text: `Timeout: Device ${deviceId} did not respond in 60s. ${isStale ? 'Device appears OFFLINE — open the JARVIS app and ensure MCP Relay is enabled.' : 'Device was connected but did not respond.'}` }],
+      content: [{ type: 'text', text: `Timeout: Device ${deviceId} did not respond in 60s. ${isStale ? 'Device appears OFFLINE — open the V.A.Y.U app and ensure MCP Relay is enabled.' : 'Device was connected but did not respond.'}` }],
       isError: true,
     };
   }
@@ -1096,13 +1096,13 @@ try {
 
 } catch (err) {
   console.warn('⚠️  MCP SSE transport not available (SDK not installed):', err.message);
-  console.warn('   Run: cd jarvis-relay && npm install');
+  console.warn('   Run: cd vayu-relay && npm install');
 }
 
 // ─── Start Server ───
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`╔══════════════════════════════════════════════╗`);
-  console.log(`║   JARVIS MCP Relay Server v6.0               ║`);
+  console.log(`║   V.A.Y.U MCP Relay Server v6.0               ║`);
   console.log(`║   HTTP Long-Polling + MCP SSE + Streamable   ║`);
   console.log(`║   Claude.ai: /sse or /mcp endpoint           ║`);
   console.log(`║   Port: ${PORT}                                 ║`);

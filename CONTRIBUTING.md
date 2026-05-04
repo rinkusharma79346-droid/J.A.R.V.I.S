@@ -59,10 +59,10 @@ First off, thank you for considering contributing to V.A.Y.U! It's people like y
 J.A.R.V.I.S/
 ├── app/                    # Android app (Kotlin)
 │   └── src/main/java/...   # Main source code
-├── jarvis-relay/           # Primary relay server (Node.js)
+├── vayu-relay/           # Primary relay server (Node.js)
 ├── mcp-server/             # MCP server for Claude Desktop (Node.js)
 ├── src/                    # Web dashboard (React)
-├── jarvis-mcp-server/      # Older MCP server prototype (TypeScript)
+├── vayu-mcp-server/      # Older MCP server prototype (TypeScript)
 └── relay-server/           # Older relay server (deprecated)
 ```
 

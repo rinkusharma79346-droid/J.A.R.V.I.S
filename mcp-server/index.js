@@ -1,35 +1,35 @@
 #!/usr/bin/env node
 
 /**
- * JARVIS MCP Server v4.0 — Fast Execution Architecture
+ * V.A.Y.U MCP Server v4.0 — Fast Execution Architecture
  *
  * Key improvements:
- *   - Auto-capture: Every action returns screenshot + UI tree (eliminates jarvis_look round-trip)
- *   - jarvis_sequence: Execute multiple actions in one command
- *   - jarvis_open_chrome_url: Open URL in Chrome macro (runs entirely on phone)
- *   - Enhanced jarvis_type_text: Works with Chrome URL bar via clipboard paste
- *   - Fixed jarvis_open_url: Explicitly targets Chrome package
+ *   - Auto-capture: Every action returns screenshot + UI tree (eliminates vayu_look round-trip)
+ *   - vayu_sequence: Execute multiple actions in one command
+ *   - vayu_open_chrome_url: Open URL in Chrome macro (runs entirely on phone)
+ *   - Enhanced vayu_type_text: Works with Chrome URL bar via clipboard paste
+ *   - Fixed vayu_open_url: Explicitly targets Chrome package
  *
  * MCP tools exposed:
- *   jarvis_tap            — Tap at coordinates (auto-captures screenshot)
- *   jarvis_swipe          — Swipe from one point to another (auto-captures)
- *   jarvis_long_press     — Long press at coordinates (auto-captures)
- *   jarvis_type_text      — Type text at coordinates (auto-captures, clipboard fallback)
- *   jarvis_press_back     — Press back button (auto-captures)
- *   jarvis_press_home     — Press home button (auto-captures)
- *   jarvis_press_recents  — Press recents button (auto-captures)
- *   jarvis_open_app       — Open an app by name (auto-captures)
- *   jarvis_open_url       — Open URL in Chrome browser (auto-captures)
- *   jarvis_open_chrome_url — MACRO: Open Chrome, type URL, load page (fastest way to navigate)
- *   jarvis_sequence       — Execute multiple actions in sequence (big speed boost)
- *   jarvis_screenshot     — Capture screenshot only
- *   jarvis_ui_tree        — Get current UI tree only
- *   jarvis_look           — Screenshot + UI tree (still useful for initial observation)
- *   jarvis_execute        — Delegate to local Gemini agent (legacy)
- *   jarvis_status         — Get current agent status
- *   jarvis_kill           — Kill running task
- *   jarvis_list_apps      — List installed apps
- *   jarvis_devices        — List connected devices
+ *   vayu_tap            — Tap at coordinates (auto-captures screenshot)
+ *   vayu_swipe          — Swipe from one point to another (auto-captures)
+ *   vayu_long_press     — Long press at coordinates (auto-captures)
+ *   vayu_type_text      — Type text at coordinates (auto-captures, clipboard fallback)
+ *   vayu_press_back     — Press back button (auto-captures)
+ *   vayu_press_home     — Press home button (auto-captures)
+ *   vayu_press_recents  — Press recents button (auto-captures)
+ *   vayu_open_app       — Open an app by name (auto-captures)
+ *   vayu_open_url       — Open URL in Chrome browser (auto-captures)
+ *   vayu_open_chrome_url — MACRO: Open Chrome, type URL, load page (fastest way to navigate)
+ *   vayu_sequence       — Execute multiple actions in sequence (big speed boost)
+ *   vayu_screenshot     — Capture screenshot only
+ *   vayu_ui_tree        — Get current UI tree only
+ *   vayu_look           — Screenshot + UI tree (still useful for initial observation)
+ *   vayu_execute        — Delegate to local Gemini agent (legacy)
+ *   vayu_status         — Get current agent status
+ *   vayu_kill           — Kill running task
+ *   vayu_list_apps      — List installed apps
+ *   vayu_devices        — List connected devices
  */
 
 const crypto = require('crypto');
@@ -101,7 +101,7 @@ async function sendCommand(type, params = {}) {
   const activeDevice = await findActiveDevice();
   if (!activeDevice) {
     return {
-      content: [{ type: 'text', text: 'No JARVIS device connected. Open the JARVIS app and enable MCP Relay in Settings.' }],
+      content: [{ type: 'text', text: 'No V.A.Y.U device connected. Open the V.A.Y.U app and enable MCP Relay in Settings.' }],
       isError: true,
     };
   }
@@ -181,7 +181,7 @@ function formatSimpleResponse(result) {
 // ─── Create MCP Server ───
 const server = new Server(
   {
-    name: 'jarvis-mcp-server',
+    name: 'vayu-mcp-server',
     version: '4.0.0',
   },
   {
@@ -196,13 +196,13 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
     tools: [
       {
-        name: 'jarvis_look',
+        name: 'vayu_look',
         description: 'Observe the current phone screen. Captures screenshot AND UI tree. Use this FIRST to understand what\'s on screen before taking any action. After actions, the screenshot is auto-captured so you don\'t need to call this again.',
         inputSchema: { type: 'object', properties: {} },
       },
       {
-        name: 'jarvis_tap',
-        description: 'Tap the phone screen at specific coordinates. After tapping, automatically captures a screenshot + UI tree so you can see the result immediately without needing jarvis_look.',
+        name: 'vayu_tap',
+        description: 'Tap the phone screen at specific coordinates. After tapping, automatically captures a screenshot + UI tree so you can see the result immediately without needing vayu_look.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -213,7 +213,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
       },
       {
-        name: 'jarvis_swipe',
+        name: 'vayu_swipe',
         description: 'Swipe on the phone screen from one point to another. Auto-captures screenshot after swiping.',
         inputSchema: {
           type: 'object',
@@ -228,7 +228,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
       },
       {
-        name: 'jarvis_long_press',
+        name: 'vayu_long_press',
         description: 'Long press at specific coordinates on the phone screen (600ms hold). Auto-captures screenshot.',
         inputSchema: {
           type: 'object',
@@ -240,7 +240,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
       },
       {
-        name: 'jarvis_type_text',
+        name: 'vayu_type_text',
         description: 'Type text into a field at specific coordinates. Taps the field first, then types using clipboard paste (works with Chrome URL bar and non-standard fields). Auto-captures screenshot after typing.',
         inputSchema: {
           type: 'object',
@@ -253,22 +253,22 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
       },
       {
-        name: 'jarvis_press_back',
+        name: 'vayu_press_back',
         description: 'Press the Android back button. Auto-captures screenshot.',
         inputSchema: { type: 'object', properties: {} },
       },
       {
-        name: 'jarvis_press_home',
+        name: 'vayu_press_home',
         description: 'Press the Android home button. Auto-captures screenshot.',
         inputSchema: { type: 'object', properties: {} },
       },
       {
-        name: 'jarvis_press_recents',
+        name: 'vayu_press_recents',
         description: 'Press the Android recents/overview button. Auto-captures screenshot.',
         inputSchema: { type: 'object', properties: {} },
       },
       {
-        name: 'jarvis_open_app',
+        name: 'vayu_open_app',
         description: 'Open an app on the phone by name (e.g., "Chrome", "YouTube") or package name. Auto-captures screenshot after app opens.',
         inputSchema: {
           type: 'object',
@@ -279,7 +279,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
       },
       {
-        name: 'jarvis_open_url',
+        name: 'vayu_open_url',
         description: 'Open a URL in Chrome browser. Explicitly targets Chrome package to avoid opening wrong apps. Auto-captures screenshot after page loads.',
         inputSchema: {
           type: 'object',
@@ -290,8 +290,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
       },
       {
-        name: 'jarvis_open_chrome_url',
-        description: 'FAST MACRO: Opens Chrome, finds the URL bar, types the URL, and presses Enter — all executed on the phone in one command with zero round-trips. Use this instead of jarvis_open_url for the fastest navigation. Auto-captures screenshot when page loads.',
+        name: 'vayu_open_chrome_url',
+        description: 'FAST MACRO: Opens Chrome, finds the URL bar, types the URL, and presses Enter — all executed on the phone in one command with zero round-trips. Use this instead of vayu_open_url for the fastest navigation. Auto-captures screenshot when page loads.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -301,7 +301,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
       },
       {
-        name: 'jarvis_sequence',
+        name: 'vayu_sequence',
         description: 'Execute multiple actions in sequence with a single command. MUCH FASTER than individual commands because there are no round-trips between actions. Automatically captures screenshot + UI tree after all actions complete. Example: [{"action":"TAP","x":540,"y":200},{"action":"TYPE","x":540,"y":200,"text":"hello"},{"action":"TAP","x":540,"y":400}]',
         inputSchema: {
           type: 'object',
@@ -330,44 +330,44 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
       },
       {
-        name: 'jarvis_screenshot',
-        description: 'Capture a screenshot from the phone. Returns a base64-encoded JPEG image. Prefer jarvis_look which also returns the UI tree.',
+        name: 'vayu_screenshot',
+        description: 'Capture a screenshot from the phone. Returns a base64-encoded JPEG image. Prefer vayu_look which also returns the UI tree.',
         inputSchema: { type: 'object', properties: {} },
       },
       {
-        name: 'jarvis_ui_tree',
+        name: 'vayu_ui_tree',
         description: 'Get the current UI tree from the phone. Shows all visible elements with their coordinates, text, and properties.',
         inputSchema: { type: 'object', properties: {} },
       },
       {
-        name: 'jarvis_execute',
-        description: 'Delegate a task to the local JARVIS agent on the phone (requires Gemini API key). Prefer using direct action tools instead.',
+        name: 'vayu_execute',
+        description: 'Delegate a task to the local V.A.Y.U agent on the phone (requires Gemini API key). Prefer using direct action tools instead.',
         inputSchema: {
           type: 'object',
           properties: {
-            task: { type: 'string', description: 'The task for JARVIS to execute autonomously' },
+            task: { type: 'string', description: 'The task for V.A.Y.U to execute autonomously' },
           },
           required: ['task'],
         },
       },
       {
-        name: 'jarvis_status',
-        description: 'Get the current status of your JARVIS agent.',
+        name: 'vayu_status',
+        description: 'Get the current status of your V.A.Y.U agent.',
         inputSchema: { type: 'object', properties: {} },
       },
       {
-        name: 'jarvis_kill',
-        description: 'Kill the currently running task on JARVIS.',
+        name: 'vayu_kill',
+        description: 'Kill the currently running task on V.A.Y.U.',
         inputSchema: { type: 'object', properties: {} },
       },
       {
-        name: 'jarvis_list_apps',
-        description: 'List all installed apps on the JARVIS device.',
+        name: 'vayu_list_apps',
+        description: 'List all installed apps on the V.A.Y.U device.',
         inputSchema: { type: 'object', properties: {} },
       },
       {
-        name: 'jarvis_devices',
-        description: 'List all JARVIS devices connected to the relay server.',
+        name: 'vayu_devices',
+        description: 'List all V.A.Y.U devices connected to the relay server.',
         inputSchema: { type: 'object', properties: {} },
       },
     ],
@@ -380,73 +380,73 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
   try {
     switch (name) {
-      case 'jarvis_tap': {
+      case 'vayu_tap': {
         const result = await sendCommand('tap', { x: args?.x, y: args?.y });
         if (result.isError) return result;
         return formatCaptureResponse(result, `tap(${args?.x}, ${args?.y})`);
       }
 
-      case 'jarvis_swipe': {
+      case 'vayu_swipe': {
         const result = await sendCommand('swipe', { x: args?.x, y: args?.y, x2: args?.x2, y2: args?.y2, duration: args?.duration });
         if (result.isError) return result;
         return formatCaptureResponse(result, `swipe(${args?.x},${args?.y} → ${args?.x2},${args?.y2})`);
       }
 
-      case 'jarvis_long_press': {
+      case 'vayu_long_press': {
         const result = await sendCommand('long_press', { x: args?.x, y: args?.y });
         if (result.isError) return result;
         return formatCaptureResponse(result, `long_press(${args?.x}, ${args?.y})`);
       }
 
-      case 'jarvis_type_text': {
+      case 'vayu_type_text': {
         const result = await sendCommand('type_text', { x: args?.x, y: args?.y, text: args?.text });
         if (result.isError) return result;
         return formatCaptureResponse(result, `type("${args?.text?.substring(0, 50)}")`);
       }
 
-      case 'jarvis_press_back': {
+      case 'vayu_press_back': {
         const result = await sendCommand('press_back');
         if (result.isError) return result;
         return formatCaptureResponse(result, 'press_back');
       }
 
-      case 'jarvis_press_home': {
+      case 'vayu_press_home': {
         const result = await sendCommand('press_home');
         if (result.isError) return result;
         return formatCaptureResponse(result, 'press_home');
       }
 
-      case 'jarvis_press_recents': {
+      case 'vayu_press_recents': {
         const result = await sendCommand('press_recents');
         if (result.isError) return result;
         return formatCaptureResponse(result, 'press_recents');
       }
 
-      case 'jarvis_open_app': {
+      case 'vayu_open_app': {
         const result = await sendCommand('open_app', { app: args?.app });
         if (result.isError) return result;
         return formatCaptureResponse(result, `open_app(${args?.app})`);
       }
 
-      case 'jarvis_open_url': {
+      case 'vayu_open_url': {
         const result = await sendCommand('open_url', { url: args?.url });
         if (result.isError) return result;
         return formatCaptureResponse(result, `open_url(${args?.url})`);
       }
 
-      case 'jarvis_open_chrome_url': {
+      case 'vayu_open_chrome_url': {
         const result = await sendCommand('open_chrome_url', { url: args?.url });
         if (result.isError) return result;
         return formatCaptureResponse(result, `open_chrome_url(${args?.url})`);
       }
 
-      case 'jarvis_sequence': {
+      case 'vayu_sequence': {
         const result = await sendCommand('sequence', { actions: args?.actions });
         if (result.isError) return result;
         return formatCaptureResponse(result, `sequence(${args?.actions?.length} actions)`);
       }
 
-      case 'jarvis_screenshot': {
+      case 'vayu_screenshot': {
         const result = await sendCommand('screenshot');
         if (result.isError) return result;
         const parsed = result.raw || {};
@@ -461,13 +461,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return formatSimpleResponse(result);
       }
 
-      case 'jarvis_ui_tree': {
+      case 'vayu_ui_tree': {
         const result = await sendCommand('ui_tree');
         if (result.isError) return result;
         return formatSimpleResponse(result);
       }
 
-      case 'jarvis_look': {
+      case 'vayu_look': {
         const result = await sendCommand('screenshot_and_ui');
         if (result.isError) return result;
         const parsed = result.raw || {};
@@ -482,7 +482,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return formatSimpleResponse(result);
       }
 
-      case 'jarvis_execute': {
+      case 'vayu_execute': {
         const task = args?.task;
         if (!task) {
           return { content: [{ type: 'text', text: 'Missing required parameter: task' }], isError: true };
@@ -490,7 +490,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const requestId = crypto.randomUUID();
         const activeDevice = await findActiveDevice();
         if (!activeDevice) {
-          return { content: [{ type: 'text', text: 'No JARVIS device connected.' }], isError: true };
+          return { content: [{ type: 'text', text: 'No V.A.Y.U device connected.' }], isError: true };
         }
         await httpRequest('POST', '/api/command', { requestId, type: 'execute', deviceId: activeDevice.deviceId, task });
         try {
@@ -501,20 +501,20 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
       }
 
-      case 'jarvis_status':
+      case 'vayu_status':
         return await sendCommand('status').then(r => r.isError ? r : formatSimpleResponse(r));
 
-      case 'jarvis_kill':
+      case 'vayu_kill':
         return await sendCommand('kill').then(r => r.isError ? r : formatSimpleResponse(r));
 
-      case 'jarvis_list_apps':
+      case 'vayu_list_apps':
         return await sendCommand('list_apps').then(r => r.isError ? r : formatSimpleResponse(r));
 
-      case 'jarvis_devices': {
+      case 'vayu_devices': {
         const data = await httpRequest('GET', '/api/devices');
         const devices = data.devices || [];
         if (devices.length === 0) {
-          return { content: [{ type: 'text', text: 'No JARVIS devices connected.' }] };
+          return { content: [{ type: 'text', text: 'No V.A.Y.U devices connected.' }] };
         }
         return {
           content: [{
@@ -538,7 +538,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error('JARVIS MCP Server v4.0 running (Fast Execution Architecture)');
+  console.error('V.A.Y.U MCP Server v4.0 running (Fast Execution Architecture)');
   console.error(`Relay: ${RELAY_URL}`);
 }
 

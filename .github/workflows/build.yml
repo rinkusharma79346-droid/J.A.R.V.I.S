@@ -1,4 +1,4 @@
-name: Build JARVIS APK
+name: Build V.A.Y.U Agent APK
 
 on:
   push:
@@ -27,11 +27,8 @@ jobs:
 
     - name: Create local.properties
       run: |
-        echo "sdk.dir=${ANDROID_SDK_ROOT}" > local.properties
-        echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY || 'AIzaSyCIz3Z0T8LwZT5VQcDaL_dgmCKIRySL5MY' }}" >> local.properties
-
-    - name: Generate Gradle Wrapper
-      run: gradle wrapper --gradle-version 8.5
+        echo "sdk.dir=\${ANDROID_SDK_ROOT}" > local.properties
+        echo "GEMINI_API_KEY=\${{ secrets.GEMINI_API_KEY }}" >> local.properties
 
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
@@ -49,11 +46,11 @@ jobs:
     - name: Upload Debug APK
       uses: actions/upload-artifact@v4
       with:
-        name: JARVIS-debug-apk
+        name: vayu-agent-debug-apk
         path: app/build/outputs/apk/debug/*.apk
 
     - name: Upload Release APK
       uses: actions/upload-artifact@v4
       with:
-        name: JARVIS-release-apk
+        name: vayu-agent-release-apk
         path: app/build/outputs/apk/release/*.apk

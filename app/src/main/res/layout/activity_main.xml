@@ -130,7 +130,7 @@
         </FrameLayout>
 
         <!-- ═══ Animated V.A.Y.U Bot Face ═══ -->
-        <com.jarvis.agent.VayuView
+        <com.vayu.agent.VayuView
             android:id="@+id/vayuView"
             android:layout_width="200dp"
             android:layout_height="200dp"

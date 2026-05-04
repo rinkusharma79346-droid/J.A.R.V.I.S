@@ -1,4 +1,4 @@
-package com.jarvis.agent
+package com.vayu.agent
 
 import android.content.Intent
 import android.net.Uri
@@ -11,7 +11,7 @@ import android.view.animation.DecelerateInterpolator
 import android.view.animation.OvershootInterpolator
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
-import com.jarvis.agent.databinding.ActivityMainBinding
+import com.vayu.agent.databinding.ActivityMainBinding
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
@@ -76,7 +76,7 @@ class MainActivity : AppCompatActivity() {
         binding.btnStop.setOnClickListener { VayuService.stopTask() }
 
         // ─── Load last task from memory ───
-        val memory = AgentMemory(getSharedPreferences("jarvis_settings", MODE_PRIVATE))
+        val memory = AgentMemory(getSharedPreferences("vayu_settings", MODE_PRIVATE))
         val lastTask = memory.getLastTask()
         if (lastTask.isNotBlank()) binding.etTask.setText(lastTask)
 

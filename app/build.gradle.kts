@@ -7,11 +7,11 @@ plugins {
 }
 
 android {
-    namespace = "com.jarvis.agent"
+    namespace = "com.vayu.agent"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.jarvis.agent"
+        applicationId = "com.vayu.agent"
         minSdk = 30
         targetSdk = 34
         versionCode = 12

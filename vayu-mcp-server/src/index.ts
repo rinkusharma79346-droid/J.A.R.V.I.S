@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 
 /**
- * JARVIS MCP Server
+ * VAYU MCP Server
  * 
- * Exposes JARVIS Android Agent tools via the Model Context Protocol.
+ * Exposes VAYU Android Agent tools via the Model Context Protocol.
  * Any MCP-compatible client (Claude Desktop, Cursor, Windsurf) can
  * control your phone through this server.
  * 
  * Architecture:
- *   MCP Client ↔ MCP Server ↔ WebSocket Relay ↔ JARVIS Android App
+ *   MCP Client ↔ MCP Server ↔ WebSocket Relay ↔ VAYU Android App
  * 
  * Usage:
  *   RELAY_URL=wss://your-relay.onrender.com node dist/index.js
@@ -44,12 +44,12 @@ let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
 // ─── WebSocket connection to relay ───
 function connectToRelay() {
-  console.error(`[JARVIS MCP] Connecting to relay: ${RELAY_URL}`);
+  console.error(`[VAYU MCP] Connecting to relay: ${RELAY_URL}`);
 
   ws = new WebSocket(RELAY_URL);
 
   ws.on("open", () => {
-    console.error("[JARVIS MCP] Connected to relay");
+    console.error("[VAYU MCP] Connected to relay");
   });
 
   ws.on("message", (data: WebSocket.Data) => {
@@ -72,21 +72,21 @@ function connectToRelay() {
 
       // Handle push notifications (status updates from phone)
       if (msg.type === "status_update") {
-        console.error(`[JARVIS MCP] Phone status: ${msg.status} — Step ${msg.step} — ${msg.action}`);
+        console.error(`[VAYU MCP] Phone status: ${msg.status} — Step ${msg.step} — ${msg.action}`);
       }
     } catch (e) {
-      console.error("[JARVIS MCP] Failed to parse relay message:", e);
+      console.error("[VAYU MCP] Failed to parse relay message:", e);
     }
   });
 
   ws.on("close", () => {
-    console.error("[JARVIS MCP] Disconnected from relay — reconnecting in 5s");
+    console.error("[VAYU MCP] Disconnected from relay — reconnecting in 5s");
     ws = null;
     reconnectTimer = setTimeout(connectToRelay, 5000);
   });
 
   ws.on("error", (err: Error) => {
-    console.error("[JARVIS MCP] WebSocket error:", err.message);
+    console.error("[VAYU MCP] WebSocket error:", err.message);
   });
 }
 
@@ -119,7 +119,7 @@ function sendCommand(type: string, payload: Record<string, any> = {}): Promise<a
 // ─── MCP Server Setup ───
 const server = new Server(
   {
-    name: "jarvis-agent",
+    name: "vayu-agent",
     version: "1.0.0",
   },
   {
@@ -134,9 +134,9 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
     tools: [
       {
-        name: "jarvis_execute",
+        name: "vayu_execute",
         description:
-          "Send a task to the JARVIS Android agent on your phone. " +
+          "Send a task to the VAYU Android agent on your phone. " +
           "The agent will autonomously execute the task using screen control. " +
           "Examples: 'Open YouTube and search for cats', 'Send a WhatsApp message to Mom saying I'll be late', " +
           "'Take a screenshot and tell me what app is open', 'Open Settings and turn on battery saver'. " +
@@ -146,16 +146,16 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           properties: {
             task: {
               type: "string",
-              description: "The natural language task for JARVIS to execute on the phone",
+              description: "The natural language task for VAYU to execute on the phone",
             },
           },
           required: ["task"],
         },
       },
       {
-        name: "jarvis_status",
+        name: "vayu_status",
         description:
-          "Get the current status of the JARVIS agent on your phone. " +
+          "Get the current status of the VAYU agent on your phone. " +
           "Returns whether the agent is running, current step, and last action.",
         inputSchema: {
           type: "object" as const,
@@ -163,9 +163,9 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
       },
       {
-        name: "jarvis_kill",
+        name: "vayu_kill",
         description:
-          "Kill the currently running task on the JARVIS agent. " +
+          "Kill the currently running task on the VAYU agent. " +
           "Use this if the agent is stuck or you want to stop execution.",
         inputSchema: {
           type: "object" as const,
@@ -173,7 +173,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
       },
       {
-        name: "jarvis_screenshot",
+        name: "vayu_screenshot",
         description:
           "Capture a screenshot from the phone. Returns a base64-encoded JPEG image. " +
           "Use this to see what's currently on the phone screen.",
@@ -183,7 +183,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
       },
       {
-        name: "jarvis_list_apps",
+        name: "vayu_list_apps",
         description:
           "List all installed apps on the phone. Returns app names and package names.",
         inputSchema: {
@@ -192,9 +192,9 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
       },
       {
-        name: "jarvis_devices",
+        name: "vayu_devices",
         description:
-          "List all JARVIS devices currently connected to the relay server.",
+          "List all VAYU devices currently connected to the relay server.",
         inputSchema: {
           type: "object" as const,
           properties: {},
@@ -210,7 +210,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
   try {
     switch (name) {
-      case "jarvis_execute": {
+      case "vayu_execute": {
         const task = (args as any)?.task;
         if (!task) {
           return {
@@ -233,11 +233,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
       }
 
-      case "jarvis_status": {
+      case "vayu_status": {
         const response = await sendCommand("status");
         const result = response as any;
 
-        let text = `📱 JARVIS Agent Status\n`;
+        let text = `📱 VAYU Agent Status\n`;
         text += `Running: ${result.isRunning ? "Yes" : "No"}\n`;
         text += `Status: ${result.status || "Idle"}\n`;
         text += `Step: ${result.step || 0}/50\n`;
@@ -249,7 +249,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
       }
 
-      case "jarvis_kill": {
+      case "vayu_kill": {
         const response = await sendCommand("kill");
         const result = response as any;
 
@@ -258,7 +258,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
       }
 
-      case "jarvis_screenshot": {
+      case "vayu_screenshot": {
         const response = await sendCommand("screenshot");
         const result = response as any;
 
@@ -280,7 +280,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
       }
 
-      case "jarvis_list_apps": {
+      case "vayu_list_apps": {
         const response = await sendCommand("list_apps");
         const result = response as any;
 
@@ -300,7 +300,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
       }
 
-      case "jarvis_devices": {
+      case "vayu_devices": {
         const response = await sendCommand("list_devices");
         const result = response as any;
 
@@ -334,7 +334,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
 // ─── Start ───
 async function main() {
-  console.error("[JARVIS MCP] Starting server...");
+  console.error("[VAYU MCP] Starting server...");
 
   // Connect to relay
   connectToRelay();
@@ -343,12 +343,12 @@ async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
 
-  console.error("[JARVIS MCP] Server running on stdio");
-  console.error(`[JARVIS MCP] Relay: ${RELAY_URL}`);
-  console.error(`[JARVIS MCP] Device ID: ${DEVICE_ID || "auto (first connected)"}`);
+  console.error("[VAYU MCP] Server running on stdio");
+  console.error(`[VAYU MCP] Relay: ${RELAY_URL}`);
+  console.error(`[VAYU MCP] Device ID: ${DEVICE_ID || "auto (first connected)"}`);
 }
 
 main().catch((error) => {
-  console.error("[JARVIS MCP] Fatal error:", error);
+  console.error("[VAYU MCP] Fatal error:", error);
   process.exit(1);
 });

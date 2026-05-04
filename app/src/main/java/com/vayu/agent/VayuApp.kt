@@ -1,4 +1,4 @@
-package com.jarvis.agent
+package com.vayu.agent
 import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager

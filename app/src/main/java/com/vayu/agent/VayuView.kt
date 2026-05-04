@@ -1,4 +1,4 @@
-package com.jarvis.agent
+package com.vayu.agent
 
 import android.animation.*
 import android.content.Context
@@ -208,10 +208,10 @@ class VayuView @JvmOverloads constructor(
 
     private fun drawOuterGlow(canvas: Canvas, radius: Float) {
         val glowRadius = radius * 1.8f
-        glowPaint.shader = RadialGradient(0f, 0f, radius * 0.5f, 0f, 0f, glowRadius, intArrayOf(
-            Color.argb((glowAlpha * 100).toInt(), 224, 122, 79),
-            Color.argb((glowAlpha * 60).toInt(), 224, 122, 79),
-            Color.argb(0, 224, 122, 79)
+        glowPaint.shader = RadialGradient(0f, 0f, radius * 0.5f, 0f, 0f, glowRadius, longArrayOf(
+            Color.argb((glowAlpha * 100).toInt(), 224, 122, 79).toLong(),
+            Color.argb((glowAlpha * 60).toInt(), 224, 122, 79).toLong(),
+            Color.argb(0, 224, 122, 79).toLong()
         ), floatArrayOf(0.2f, 0.6f, 1f), Shader.TileMode.CLAMP)
         canvas.drawCircle(0f, 0f, glowRadius, glowPaint)
     }
@@ -230,11 +230,11 @@ class VayuView @JvmOverloads constructor(
 
     private fun drawSphere(canvas: Canvas, radius: Float) {
         // Main sphere gradient
-        val gradColors = intArrayOf(
-            Color.parseColor("#F4A261"),  // Light orange top-left
-            Color.parseColor("#E07A4F"),  // Primary orange
-            Color.parseColor("#C4603A"),  // Darker orange
-            Color.parseColor("#8B3A1F")   // Dark bottom-right
+        val gradColors = longArrayOf(
+            Color.parseColor("#F4A261").toLong(),  // Light orange top-left
+            Color.parseColor("#E07A4F").toLong(),  // Primary orange
+            Color.parseColor("#C4603A").toLong(),  // Darker orange
+            Color.parseColor("#8B3A1F").toLong()   // Dark bottom-right
         )
         val gradPositions = floatArrayOf(0f, 0.35f, 0.7f, 1f)
         spherePaint.shader = RadialGradient(
@@ -248,10 +248,10 @@ class VayuView @JvmOverloads constructor(
         specularPaint.shader = RadialGradient(
             -radius * 0.25f, -radius * 0.3f, 0f,
             -radius * 0.25f, -radius * 0.3f, radius * 0.5f,
-            intArrayOf(
-                Color.argb(180, 255, 255, 255),
-                Color.argb(60, 255, 240, 220),
-                Color.argb(0, 255, 255, 255)
+            longArrayOf(
+                Color.argb(180, 255, 255, 255).toLong(),
+                Color.argb(60, 255, 240, 220).toLong(),
+                Color.argb(0, 255, 255, 255).toLong()
             ),
             floatArrayOf(0f, 0.5f, 1f),
             Shader.TileMode.CLAMP
@@ -324,10 +324,10 @@ class VayuView @JvmOverloads constructor(
         canvas.drawOval(RectF(x - rx, y - ry, x + rx, y + ry), eyePaint)
 
         // Pupil (iris)
-        pupilPaint.shader = RadialGradient(x + pupilOx, y + pupilOy, 0f, x + pupilOx, y + pupilOy, pupilRadius, intArrayOf(
-            Color.argb(255, 30, 20, 15),
-            Color.argb(200, 100, 60, 40)
-        ), floatArrayOf(0.3f, 1f), Shader.TileMode.CLAMP)
+        pupilPaint.shader = RadialGradient(x + pupilOx, y + pupilOy, 0f, x + pupilOx, y + pupilOy, pupilRadius, longArrayOf(
+                Color.argb(255, 30, 20, 15).toLong(),
+                Color.argb(200, 100, 60, 40).toLong()
+            ), floatArrayOf(0.3f, 1f), Shader.TileMode.CLAMP)
         canvas.drawCircle(x + pupilOx, y + pupilOy, pupilRadius, pupilPaint)
 
         // Pupil highlight

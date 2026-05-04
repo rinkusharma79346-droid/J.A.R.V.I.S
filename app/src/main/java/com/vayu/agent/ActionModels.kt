@@ -1,4 +1,4 @@
-package com.jarvis.agent
+package com.vayu.agent
 
 // ─── Agent Action (returned by AI / sent via MCP) ───
 data class AgentAction(

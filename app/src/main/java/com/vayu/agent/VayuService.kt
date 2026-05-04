@@ -1,4 +1,4 @@
-package com.jarvis.agent
+package com.vayu.agent
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
@@ -80,18 +80,18 @@ class VayuService : AccessibilityService() {
 
     override fun onServiceConnected() {
         instance = this
-        memory = AgentMemory(getSharedPreferences("jarvis_settings", MODE_PRIVATE))
+        memory = AgentMemory(getSharedPreferences("vayu_settings", MODE_PRIVATE))
         status.value = "Ready — Service Connected"
         Log.i(TAG, "VayuService connected — ready")
         Toast.makeText(this, "VAYU Agent Active", Toast.LENGTH_SHORT).show()
 
         // Initialize relay client and auto-connect
-        RelayClient.init(getSharedPreferences("jarvis_settings", MODE_PRIVATE), this)
+        RelayClient.init(getSharedPreferences("vayu_settings", MODE_PRIVATE), this)
         if (RelayClient.isEnabled()) {
             RelayClient.connect()
             Log.i(TAG, "MCP Relay auto-connecting...")
         } else {
-            val prefs = getSharedPreferences("jarvis_settings", MODE_PRIVATE)
+            val prefs = getSharedPreferences("vayu_settings", MODE_PRIVATE)
             val hasUrl = prefs.getString("relay_url", "")?.isNotBlank() == true
             if (hasUrl) {
                 RelayClient.setEnabled(true)
@@ -371,7 +371,7 @@ class VayuService : AccessibilityService() {
             x2 = x2, y2 = y2,
             text = text
         )
-        executeAction(agentAction)
+        kotlinx.coroutines.runBlocking { executeAction(agentAction) }
     }
 
     // ════════════════════════════════════════════════

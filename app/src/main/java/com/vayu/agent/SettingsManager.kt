@@ -1,11 +1,11 @@
-package com.jarvis.agent
+package com.vayu.agent
 
 import android.content.Context
 import android.content.SharedPreferences
 
 object SettingsManager {
 
-    private const val PREFS_NAME = "jarvis_settings"
+    private const val PREFS_NAME = "vayu_settings"
     private const val KEY_PROVIDER = "api_provider"
     private const val KEY_API_KEY_GEMINI = "api_key_gemini"
     private const val KEY_API_KEY_OPENAI = "api_key_openai"

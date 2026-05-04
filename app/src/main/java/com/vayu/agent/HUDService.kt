@@ -1,4 +1,4 @@
-package com.jarvis.agent
+package com.vayu.agent
 
 import android.app.Service
 import android.content.Context

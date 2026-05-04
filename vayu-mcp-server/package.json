@@ -1,5 +1,5 @@
 {
-  "name": "jarvis-mcp-server",
+  "name": "vayu-mcp-server",
   "version": "1.0.0",
   "description": "MCP Server for V.A.Y.U Android Agent — control your phone from any MCP client",
   "type": "module",

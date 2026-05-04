@@ -93,7 +93,7 @@ It sees your screen through accessibility services, uses AI vision to understand
 ```
 ┌───────────────────────┐       HTTP Long-Polling       ┌──────────────────────┐
 │   V.A.Y.U Android App   │ ◄──────────────────────────► │   Relay Server        │
-│   (Kotlin)             │   /api/poll, /register       │   (jarvis-relay/)     │
+│   (Kotlin)             │   /api/poll, /register       │   (vayu-relay/)     │
 │                        │   /api/response              │   Express + MCP SDK   │
 │   - Accessibility Svc  │                              │                      │
 │   - HUD Overlay        │                              │   - SSE /sse          │
@@ -117,7 +117,7 @@ It sees your screen through accessibility services, uses AI vision to understand
 | Component | Language | Description |
 |-----------|----------|-------------|
 | `app/` | Kotlin | Android app with Accessibility Service, AI providers, HUD overlay |
-| `jarvis-relay/` | JavaScript | Primary relay server with HTTP polling + MCP SSE/Streamable HTTP |
+| `vayu-relay/` | JavaScript | Primary relay server with HTTP polling + MCP SSE/Streamable HTTP |
 | `mcp-server/` | JavaScript | Local MCP server for Claude Desktop / Cursor / Windsurf (19 tools) |
 | `src/` | TypeScript/React | Web dashboard UI (demo mockup with glass morphism design) |
 
@@ -206,7 +206,7 @@ Add the same MCP server config in your IDE's MCP settings. The local MCP server 
 The relay server bridges between MCP clients and the Android device.
 
 ```bash
-cd jarvis-relay
+cd vayu-relay
 npm install
 node server.js
 ```

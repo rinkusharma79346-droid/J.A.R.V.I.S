@@ -16,8 +16,6 @@
     </style>
 
     <!-- Keep legacy name for AndroidManifest backward compat -->
-    <style name="Theme.Jarvis" parent="Theme.Vayu" />
-
     <style name="WindowAnimationTransition">
         <item name="android:windowEnterAnimation">@android:anim/fade_in</item>
         <item name="android:windowExitAnimation">@android:anim/fade_out</item>

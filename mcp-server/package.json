@@ -1,10 +1,10 @@
 {
-  "name": "jarvis-mcp-server",
+  "name": "vayu-mcp-server",
   "version": "4.0.0",
   "description": "V.A.Y.U MCP Server — Control your V.A.Y.U Android agent from Claude Desktop, Cursor, or any MCP client via HTTP long-polling relay",
   "main": "index.js",
   "bin": {
-    "jarvis-mcp-server": "./index.js"
+    "vayu-mcp-server": "./index.js"
   },
   "scripts": {
     "start": "node index.js"

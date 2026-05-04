@@ -2,7 +2,7 @@ services:
   - type: web
     name: V-A-Y-U-Agent
     runtime: node
-    rootDir: jarvis-relay
+    rootDir: vayu-relay
     buildCommand: npm install
     startCommand: node server.js
     plan: free

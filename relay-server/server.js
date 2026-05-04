@@ -1,5 +1,5 @@
 /**
- * JARVIS MCP Relay Server v3.0 — HTTP Long-Polling
+ * V.A.Y.U MCP Relay Server v3.0 — HTTP Long-Polling
  *
  * Improvements over v2.1:
  *   - Better connection stability (heartbeat tracking, faster reconnect)
@@ -365,7 +365,7 @@ setInterval(() => {
 // ─── Root endpoint ───
 app.get('/', (req, res) => {
   res.json({
-    name: 'JARVIS MCP Relay Server',
+    name: 'V.A.Y.U MCP Relay Server',
     version: '4.0.0',
     protocol: 'HTTP Long-Polling + MCP SSE',
     features: ['auto-capture', 'sequence-commands', 'chrome-url-macro', 'mcp-sse-claude-ai'],
@@ -400,7 +400,7 @@ try {
 
   // Create the MCP server instance (same tools as mcp-server/index.js)
   const mcpServer = new McpServer(
-    { name: 'jarvis-mcp-server', version: '4.0.0' },
+    { name: 'vayu-mcp-server', version: '4.0.0' },
     { capabilities: { tools: {} } }
   );
 
@@ -409,12 +409,12 @@ try {
     return {
       tools: [
         {
-          name: 'jarvis_look',
+          name: 'vayu_look',
           description: 'Observe the current phone screen. Captures screenshot AND UI tree. Use this FIRST to understand what\'s on screen before taking any action.',
           inputSchema: { type: 'object', properties: {} },
         },
         {
-          name: 'jarvis_tap',
+          name: 'vayu_tap',
           description: 'Tap the phone screen at specific coordinates. Auto-captures screenshot + UI tree after tapping.',
           inputSchema: {
             type: 'object',
@@ -426,7 +426,7 @@ try {
           },
         },
         {
-          name: 'jarvis_swipe',
+          name: 'vayu_swipe',
           description: 'Swipe on the phone screen from one point to another. Auto-captures screenshot.',
           inputSchema: {
             type: 'object',
@@ -441,7 +441,7 @@ try {
           },
         },
         {
-          name: 'jarvis_long_press',
+          name: 'vayu_long_press',
           description: 'Long press at specific coordinates. Auto-captures screenshot.',
           inputSchema: {
             type: 'object',
@@ -453,7 +453,7 @@ try {
           },
         },
         {
-          name: 'jarvis_type_text',
+          name: 'vayu_type_text',
           description: 'Type text into a field at specific coordinates. Uses clipboard paste for WebView/React compatibility. Auto-captures screenshot.',
           inputSchema: {
             type: 'object',
@@ -466,22 +466,22 @@ try {
           },
         },
         {
-          name: 'jarvis_press_back',
+          name: 'vayu_press_back',
           description: 'Press the Android back button. Auto-captures screenshot.',
           inputSchema: { type: 'object', properties: {} },
         },
         {
-          name: 'jarvis_press_home',
+          name: 'vayu_press_home',
           description: 'Press the Android home button. Auto-captures screenshot.',
           inputSchema: { type: 'object', properties: {} },
         },
         {
-          name: 'jarvis_press_recents',
+          name: 'vayu_press_recents',
           description: 'Press the Android recents/overview button. Auto-captures screenshot.',
           inputSchema: { type: 'object', properties: {} },
         },
         {
-          name: 'jarvis_open_app',
+          name: 'vayu_open_app',
           description: 'Open an app on the phone by name or package name. Auto-captures screenshot.',
           inputSchema: {
             type: 'object',
@@ -492,7 +492,7 @@ try {
           },
         },
         {
-          name: 'jarvis_open_url',
+          name: 'vayu_open_url',
           description: 'Open a URL in Chrome browser. Auto-captures screenshot after page loads.',
           inputSchema: {
             type: 'object',
@@ -503,7 +503,7 @@ try {
           },
         },
         {
-          name: 'jarvis_open_chrome_url',
+          name: 'vayu_open_chrome_url',
           description: 'FAST MACRO: Opens Chrome, types URL, presses Enter — all on-phone with zero round-trips. Fastest way to navigate.',
           inputSchema: {
             type: 'object',
@@ -514,7 +514,7 @@ try {
           },
         },
         {
-          name: 'jarvis_sequence',
+          name: 'vayu_sequence',
           description: 'Execute multiple actions in sequence with a single command. MUCH FASTER than individual commands. Auto-captures screenshot after all actions complete.',
           inputSchema: {
             type: 'object',
@@ -543,33 +543,33 @@ try {
           },
         },
         {
-          name: 'jarvis_screenshot',
+          name: 'vayu_screenshot',
           description: 'Capture a screenshot from the phone. Returns base64 JPEG.',
           inputSchema: { type: 'object', properties: {} },
         },
         {
-          name: 'jarvis_ui_tree',
+          name: 'vayu_ui_tree',
           description: 'Get the current UI tree from the phone.',
           inputSchema: { type: 'object', properties: {} },
         },
         {
-          name: 'jarvis_status',
-          description: 'Get the current status of your JARVIS agent.',
+          name: 'vayu_status',
+          description: 'Get the current status of your V.A.Y.U agent.',
           inputSchema: { type: 'object', properties: {} },
         },
         {
-          name: 'jarvis_kill',
-          description: 'Kill the currently running task on JARVIS.',
+          name: 'vayu_kill',
+          description: 'Kill the currently running task on V.A.Y.U.',
           inputSchema: { type: 'object', properties: {} },
         },
         {
-          name: 'jarvis_list_apps',
-          description: 'List all installed apps on the JARVIS device.',
+          name: 'vayu_list_apps',
+          description: 'List all installed apps on the V.A.Y.U device.',
           inputSchema: { type: 'object', properties: {} },
         },
         {
-          name: 'jarvis_devices',
-          description: 'List all JARVIS devices connected to the relay server.',
+          name: 'vayu_devices',
+          description: 'List all V.A.Y.U devices connected to the relay server.',
           inputSchema: { type: 'object', properties: {} },
         },
       ],
@@ -591,7 +591,7 @@ try {
     
     if (!activeDevice) {
       return {
-        content: [{ type: 'text', text: 'No JARVIS device connected. Open the JARVIS app and enable MCP Relay in Settings.' }],
+        content: [{ type: 'text', text: 'No V.A.Y.U device connected. Open the V.A.Y.U app and enable MCP Relay in Settings.' }],
         isError: true,
       };
     }
@@ -663,62 +663,62 @@ try {
     const { name, arguments: args } = request.params;
     try {
       switch (name) {
-        case 'jarvis_tap': {
+        case 'vayu_tap': {
           const r = await mcpSendCommand('tap', { x: args?.x, y: args?.y });
           return r.isError ? r : mcpFormatCapture(r, `tap(${args?.x}, ${args?.y})`);
         }
-        case 'jarvis_swipe': {
+        case 'vayu_swipe': {
           const r = await mcpSendCommand('swipe', { x: args?.x, y: args?.y, x2: args?.x2, y2: args?.y2, duration: args?.duration });
           return r.isError ? r : mcpFormatCapture(r, `swipe(${args?.x},${args?.y} → ${args?.x2},${args?.y2})`);
         }
-        case 'jarvis_long_press': {
+        case 'vayu_long_press': {
           const r = await mcpSendCommand('long_press', { x: args?.x, y: args?.y });
           return r.isError ? r : mcpFormatCapture(r, `long_press(${args?.x}, ${args?.y})`);
         }
-        case 'jarvis_type_text': {
+        case 'vayu_type_text': {
           const r = await mcpSendCommand('type_text', { x: args?.x, y: args?.y, text: args?.text });
           return r.isError ? r : mcpFormatCapture(r, `type("${args?.text?.substring(0, 50)}")`);
         }
-        case 'jarvis_press_back': {
+        case 'vayu_press_back': {
           const r = await mcpSendCommand('press_back');
           return r.isError ? r : mcpFormatCapture(r, 'press_back');
         }
-        case 'jarvis_press_home': {
+        case 'vayu_press_home': {
           const r = await mcpSendCommand('press_home');
           return r.isError ? r : mcpFormatCapture(r, 'press_home');
         }
-        case 'jarvis_press_recents': {
+        case 'vayu_press_recents': {
           const r = await mcpSendCommand('press_recents');
           return r.isError ? r : mcpFormatCapture(r, 'press_recents');
         }
-        case 'jarvis_open_app': {
+        case 'vayu_open_app': {
           const r = await mcpSendCommand('open_app', { app: args?.app });
           return r.isError ? r : mcpFormatCapture(r, `open_app(${args?.app})`);
         }
-        case 'jarvis_open_url': {
+        case 'vayu_open_url': {
           const r = await mcpSendCommand('open_url', { url: args?.url });
           return r.isError ? r : mcpFormatCapture(r, `open_url(${args?.url})`);
         }
-        case 'jarvis_open_chrome_url': {
+        case 'vayu_open_chrome_url': {
           const r = await mcpSendCommand('open_chrome_url', { url: args?.url });
           return r.isError ? r : mcpFormatCapture(r, `open_chrome_url(${args?.url})`);
         }
-        case 'jarvis_sequence': {
+        case 'vayu_sequence': {
           const r = await mcpSendCommand('sequence', { actions: args?.actions });
           return r.isError ? r : mcpFormatCapture(r, `sequence(${args?.actions?.length} actions)`);
         }
-        case 'jarvis_screenshot': {
+        case 'vayu_screenshot': {
           const r = await mcpSendCommand('screenshot');
           if (r.isError) return r;
           const p = r.raw || {};
           if (p.base64) return { content: [{ type: 'image', data: p.base64, mimeType: p.mimeType || 'image/jpeg' }, { type: 'text', text: `Screenshot from device: ${p.deviceId || 'unknown'}` }] };
           return mcpFormatSimple(r);
         }
-        case 'jarvis_ui_tree': {
+        case 'vayu_ui_tree': {
           const r = await mcpSendCommand('ui_tree');
           return r.isError ? r : mcpFormatSimple(r);
         }
-        case 'jarvis_look': {
+        case 'vayu_look': {
           const r = await mcpSendCommand('screenshot_and_ui');
           if (r.isError) return r;
           const p = r.raw || {};
@@ -727,26 +727,26 @@ try {
           if (p.uiTree && p.uiTree.length > 10) c.push({ type: 'text', text: `UI Tree:\n${p.uiTree}` });
           return c.length > 0 ? { content: c } : mcpFormatSimple(r);
         }
-        case 'jarvis_status': {
+        case 'vayu_status': {
           const r = await mcpSendCommand('status');
           return r.isError ? r : mcpFormatSimple(r);
         }
-        case 'jarvis_kill': {
+        case 'vayu_kill': {
           const r = await mcpSendCommand('kill');
           return r.isError ? r : mcpFormatSimple(r);
         }
-        case 'jarvis_list_apps': {
+        case 'vayu_list_apps': {
           const r = await mcpSendCommand('list_apps');
           return r.isError ? r : mcpFormatSimple(r);
         }
-        case 'jarvis_devices': {
+        case 'vayu_devices': {
           const deviceList = [];
           for (const [id, dev] of devices) {
             const isStale = Date.now() - dev.lastSeen > DEVICE_STALE_MS;
             const status = statusUpdates.get(id);
             deviceList.push(`${isStale ? '[OFFLINE]' : '[ONLINE]'} ${id}\n   Model: ${dev.info.model}\n   Android: ${dev.info.androidVersion}\n   Status: ${status ? status.status : 'Idle'}`);
           }
-          return { content: [{ type: 'text', text: deviceList.length > 0 ? deviceList.join('\n\n') : 'No JARVIS devices connected.' }] };
+          return { content: [{ type: 'text', text: deviceList.length > 0 ? deviceList.join('\n\n') : 'No V.A.Y.U devices connected.' }] };
         }
         default:
           return { content: [{ type: 'text', text: `Unknown tool: ${name}` }], isError: true };
@@ -789,7 +789,7 @@ try {
 // ─── Start Server ───
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`╔══════════════════════════════════════════╗`);
-  console.log(`║   JARVIS MCP Relay Server v4.0           ║`);
+  console.log(`║   V.A.Y.U MCP Relay Server v4.0           ║`);
   console.log(`║   HTTP Long-Polling + MCP SSE            ║`);
   console.log(`║   Claude.ai: /sse endpoint ready         ║`);
   console.log(`║   Port: ${PORT}                            ║`);
