@@ -12,10 +12,10 @@ android {
 
     defaultConfig {
         applicationId = "com.vayu.agent"
-        minSdk = 30
+        minSdk = 28
         targetSdk = 34
-        versionCode = 12
-        versionName = "9.0"
+        versionCode = 13
+        versionName = "10.0"
 
         val localProperties = Properties()
         val localPropertiesFile = rootProject.file("local.properties")
@@ -28,12 +28,33 @@ android {
         buildConfigField("String", "GEMINI_API_KEY", "\"$apiKey\"")
     }
 
+    signingConfigs {
+        create("release") {
+            storeFile = file("/tmp/android-sdk/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfig = signingConfigs.getByName("release")
+        }
+        debug {
+            isDebuggable = true
+            isMinifyEnabled = false
         }
     }
+
+    lint {
+        abortOnError = false
+        checkReleaseBuilds = false
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
