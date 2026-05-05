@@ -13,7 +13,9 @@ workflows:
     environment:
       java: 17
       vars:
-        GEMINI_API_KEY: ""
+        GEMINI_API_KEY:
+          value: "placeholder"
+          required: false
 
     triggering:
       events:
@@ -38,20 +40,18 @@ workflows:
 
       - name: Build Debug APK
         script: |
+          export GRADLE_OPTS="-Xmx4g -Dorg.gradle.daemon=false -Dorg.gradle.parallel=true"
           ./gradlew assembleDebug --no-daemon
-        environment:
-          GRADLE_OPTS: "-Xmx4g -Dorg.gradle.daemon=false -Dorg.gradle.parallel=true"
 
       - name: Verify APK
         script: |
           APK_PATH="app/build/outputs/apk/debug/app-debug.apk"
           if [ -f "$APK_PATH" ]; then
-            echo "✅ Debug APK built successfully"
+            echo "Debug APK built successfully"
             ls -lh "$APK_PATH"
-            # Verify APK is valid
             $ANDROID_HOME/build-tools/34.0.0/aapt dump badging "$APK_PATH" | head -5
           else
-            echo "❌ Debug APK not found"
+            echo "Debug APK not found"
             exit 1
           fi
 
@@ -65,8 +65,6 @@ workflows:
         notify:
           success: true
           failure: true
-      github:
-        release: draft
 
   # ─── Release APK Build (signed, for distribution) ───
   android-release:
@@ -77,12 +75,9 @@ workflows:
     environment:
       java: 17
       vars:
-        GEMINI_API_KEY: ""
-        # ─── Keystore variables (set in Codemagic UI → Environment Variables) ───
-        # CM_KEYSTORE_PATH:   (auto-set by Codemagic when you upload keystore)
-        # CM_KEYSTORE_PASSWORD: (set in Codemagic UI)
-        # CM_KEY_ALIAS:         (set in Codemagic UI)
-        # CM_KEY_PASSWORD:      (set in Codemagic UI)
+        GEMINI_API_KEY:
+          value: "placeholder"
+          required: false
 
     triggering:
       events:
@@ -105,44 +100,38 @@ workflows:
 
       - name: Set up signing keystore
         script: |
-          # If Codemagic injected keystore env vars, use them
-          # Otherwise, fall back to the debug keystore in the repo
           if [ -z "$CM_KEYSTORE_PATH" ]; then
-            echo "⚠️ No Codemagic keystore configured — using debug keystore"
+            echo "No Codemagic keystore configured - using debug keystore"
             export CM_KEYSTORE_PATH="$(pwd)/app/debug.keystore"
             export CM_KEYSTORE_PASSWORD="android"
             export CM_KEY_ALIAS="androiddebugkey"
             export CM_KEY_PASSWORD="android"
           else
-            echo "✅ Using Codemagic-uploaded keystore"
+            echo "Using Codemagic-uploaded keystore"
           fi
 
       - name: Build Release APK
         script: |
-          # Export keystore env vars for Gradle
           if [ -z "$CM_KEYSTORE_PATH" ]; then
             export CM_KEYSTORE_PATH="$(pwd)/app/debug.keystore"
             export CM_KEYSTORE_PASSWORD="android"
             export CM_KEY_ALIAS="androiddebugkey"
             export CM_KEY_PASSWORD="android"
           fi
+          export GRADLE_OPTS="-Xmx4g -Dorg.gradle.daemon=false -Dorg.gradle.parallel=true"
           ./gradlew assembleRelease --no-daemon
-        environment:
-          GRADLE_OPTS: "-Xmx4g -Dorg.gradle.daemon=false -Dorg.gradle.parallel=true"
 
       - name: Verify APK
         script: |
           APK_PATH="app/build/outputs/apk/release/app-release.apk"
           if [ -f "$APK_PATH" ]; then
-            echo "✅ Release APK built successfully"
+            echo "Release APK built successfully"
             ls -lh "$APK_PATH"
-            # Verify APK is valid and can be installed
             $ANDROID_HOME/build-tools/34.0.0/aapt dump badging "$APK_PATH" | head -5
             echo "---"
             $ANDROID_HOME/build-tools/34.0.0/aapt dump permissions "$APK_PATH"
           else
-            echo "❌ Release APK not found at $APK_PATH"
-            echo "Listing all APK files:"
+            echo "Release APK not found at $APK_PATH"
             find app/build/outputs -name "*.apk" 2>/dev/null || echo "No APKs found"
             exit 1
           fi
@@ -158,10 +147,6 @@ workflows:
         notify:
           success: true
           failure: true
-      github:
-        release: draft
-        tags:
-          - v10.0
 
   # ─── Both Debug + Release (manual trigger) ───
   android-full-build:
@@ -172,7 +157,9 @@ workflows:
     environment:
       java: 17
       vars:
-        GEMINI_API_KEY: ""
+        GEMINI_API_KEY:
+          value: "placeholder"
+          required: false
 
     triggering:
       events:
@@ -190,9 +177,8 @@ workflows:
 
       - name: Build Debug APK
         script: |
+          export GRADLE_OPTS="-Xmx4g -Dorg.gradle.daemon=false -Dorg.gradle.parallel=true"
           ./gradlew assembleDebug --no-daemon
-        environment:
-          GRADLE_OPTS: "-Xmx4g -Dorg.gradle.daemon=false -Dorg.gradle.parallel=true"
 
       - name: Build Release APK (with debug keystore)
         script: |
@@ -200,33 +186,32 @@ workflows:
           export CM_KEYSTORE_PASSWORD="android"
           export CM_KEY_ALIAS="androiddebugkey"
           export CM_KEY_PASSWORD="android"
+          export GRADLE_OPTS="-Xmx4g -Dorg.gradle.daemon=false -Dorg.gradle.parallel=true"
           ./gradlew assembleRelease --no-daemon
-        environment:
-          GRADLE_OPTS: "-Xmx4g -Dorg.gradle.daemon=false -Dorg.gradle.parallel=true"
 
       - name: Verify all APKs
         script: |
-          echo "═══ Debug APK ═══"
+          echo "=== Debug APK ==="
           DEBUG_APK="app/build/outputs/apk/debug/app-debug.apk"
           if [ -f "$DEBUG_APK" ]; then
-            echo "✅ Debug APK:"
+            echo "Debug APK found:"
             ls -lh "$DEBUG_APK"
             $ANDROID_HOME/build-tools/34.0.0/aapt dump badging "$DEBUG_APK" | head -3
           else
-            echo "❌ Debug APK missing"
+            echo "Debug APK missing"
           fi
           echo ""
-          echo "═══ Release APK ═══"
+          echo "=== Release APK ==="
           RELEASE_APK="app/build/outputs/apk/release/app-release.apk"
           if [ -f "$RELEASE_APK" ]; then
-            echo "✅ Release APK:"
+            echo "Release APK found:"
             ls -lh "$RELEASE_APK"
             $ANDROID_HOME/build-tools/34.0.0/aapt dump badging "$RELEASE_APK" | head -3
           else
-            echo "❌ Release APK missing"
+            echo "Release APK missing"
           fi
           echo ""
-          echo "═══ All APKs ═══"
+          echo "=== All APKs ==="
           find app/build/outputs -name "*.apk" -exec ls -lh {} \;
 
     artifacts:
@@ -240,5 +225,3 @@ workflows:
         notify:
           success: true
           failure: true
-      github:
-        release: draft
