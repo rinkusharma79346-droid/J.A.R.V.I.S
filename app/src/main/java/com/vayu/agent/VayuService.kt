@@ -313,7 +313,7 @@ class VayuService : AccessibilityService() {
                 takeScreenshot(Display.DEFAULT_DISPLAY, mainExecutor, object : TakeScreenshotCallback {
                     override fun onSuccess(result: ScreenshotResult) {
                         try {
-                            val hwBitmap = result.hardwareBuffer?.let { hb ->
+                            val hwBitmap = result.hardwareBuffer.let { hb ->
                                 Bitmap.wrapHardwareBuffer(hb, result.colorSpace)
                             }
                             if (hwBitmap == null) {
@@ -392,7 +392,7 @@ class VayuService : AccessibilityService() {
     //  DIRECT ACTION EXECUTION
     // ════════════════════════════════════════════════
 
-    suspend fun executeDirectAction(action: String, x: Int, y: Int, x2: Int, y2: Int, text: String, duration: Long = 0L) {
+    suspend fun executeDirectAction(action: String, x: Int, y: Int, x2: Int, y2: Int, text: String, @Suppress("UNUSED_PARAMETER") duration: Long = 0L) {
         val agentAction = AgentAction(
             action = action,
             x = x, y = y,
