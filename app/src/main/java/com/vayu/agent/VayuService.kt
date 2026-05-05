@@ -5,6 +5,7 @@ import android.accessibilityservice.GestureDescription
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Path
+import android.os.Build
 import android.os.Bundle
 import android.util.Base64
 import android.util.Log
@@ -163,7 +164,10 @@ class VayuService : AccessibilityService() {
                     delay(80)
 
                     val b64 = captureScreen()
-                    if (b64 == null) {
+                    if (b64 == null && Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+                        // API 29: Screenshot not available, use UI tree only (don't count as failure)
+                        Log.i(TAG, "Step $step: Screenshot unavailable on API ${Build.VERSION.SDK_INT}, using UI tree only")
+                    } else if (b64 == null) {
                         consecutiveScreenshotFailures++
                         Log.w(TAG, "Step $step: Screenshot failed ($consecutiveScreenshotFailures/5)")
                         if (consecutiveScreenshotFailures >= 5) {
@@ -279,9 +283,28 @@ class VayuService : AccessibilityService() {
 
     // ════════════════════════════════════════════════
     //  SCREENSHOT CAPTURE
+    //  NOTE: AccessibilityService.takeScreenshot() requires API 30+ (Android 11+)
+    //  On API 29 (Android 10), we use the legacy rootInActiveWindow approach
     // ════════════════════════════════════════════════
 
     private suspend fun captureScreen(): String? = withContext(Dispatchers.Main) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                // API 30+: Use the official takeScreenshot API
+                captureScreenApi30()
+            } else {
+                // API 29 and below: Fallback — return null gracefully
+                // The agent will work with UI tree only on older devices
+                Log.w(TAG, "Screenshot capture not available on API ${Build.VERSION.SDK_INT} (requires API 30+)")
+                null
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "captureScreen exception: ${e.message}")
+            null
+        }
+    }
+
+    private suspend fun captureScreenApi30(): String? = withContext(Dispatchers.Main) {
         try {
             suspendCancellableCoroutine<String?> { cont ->
                 takeScreenshot(Display.DEFAULT_DISPLAY, mainExecutor, object : TakeScreenshotCallback {
@@ -331,7 +354,7 @@ class VayuService : AccessibilityService() {
                 })
             }
         } catch (e: Exception) {
-            Log.e(TAG, "captureScreen exception: ${e.message}")
+            Log.e(TAG, "captureScreenApi30 exception: ${e.message}")
             null
         }
     }

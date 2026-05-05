@@ -80,6 +80,9 @@ class MainActivity : AppCompatActivity() {
         val lastTask = memory.getLastTask()
         if (lastTask.isNotBlank()) binding.etTask.setText(lastTask)
 
+        // ─── Show previous crash info if any ───
+        showCrashInfoIfAvailable()
+
         // ─── Observe VayuService flows ───
         lifecycleScope.launch {
             VayuService.status.collectLatest { status ->
@@ -195,6 +198,24 @@ class MainActivity : AppCompatActivity() {
         binding.tvApiKeyStatus.setTextColor(
             getColor(if (hasKey) R.color.green_accent else R.color.red_accent)
         )
+    }
+
+    /** Show crash info from previous run if available (helps debugging). */
+    private fun showCrashInfoIfAvailable() {
+        try {
+            val prefs = getSharedPreferences("vayu_crash", MODE_PRIVATE)
+            val crashClass = prefs.getString("last_crash_class", null)
+            val crashMsg = prefs.getString("last_crash_msg", null)
+            val crashTime = prefs.getLong("last_crash_time", 0)
+
+            if (crashClass != null && System.currentTimeMillis() - crashTime < 60000) {
+                // Show crash from last 60 seconds
+                binding.tvStatus.text = "CRASH: $crashClass — $crashMsg"
+                binding.tvStatus.setTextColor(getColor(R.color.red_accent))
+                // Clear so it doesn't show again
+                prefs.edit().clear().apply()
+            }
+        } catch (_: Exception) {}
     }
 
     /** Animate the title with a pulsing glow behind it. */
