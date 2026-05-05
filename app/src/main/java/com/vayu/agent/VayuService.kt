@@ -208,7 +208,7 @@ class VayuService : AccessibilityService() {
                         task = task,
                         step = step,
                         uiTree = uiTree,
-                        base64Screenshot = if (config.supportsVision) b64 else "",
+                        base64Screenshot = if (config.supportsVision) (b64 ?: "") else "",
                         screenshotMime = "image/jpeg",
                         history = memory.getHistory()
                     )
@@ -618,7 +618,7 @@ class VayuService : AccessibilityService() {
             }
 
             for (i in 0 until node.childCount) {
-                search(node.getChild(i))
+                node.getChild(i)?.let { search(it) }
             }
         }
 
@@ -652,7 +652,7 @@ class VayuService : AccessibilityService() {
             }
 
             for (i in 0 until node.childCount) {
-                if (searchEnter(node.getChild(i))) return true
+                node.getChild(i)?.let { child -> if (searchEnter(child)) return true }
             }
             return false
         }
