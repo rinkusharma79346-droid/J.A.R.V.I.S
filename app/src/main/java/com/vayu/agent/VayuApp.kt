@@ -2,16 +2,18 @@ package com.vayu.agent
 import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
-import android.content.Intent
 import android.os.Build
 import android.util.Log
-import android.widget.Toast
 
 class VayuApp : Application() {
     companion object { const val CHANNEL_ID = "vayu_service" }
 
     override fun onCreate() {
-        // Install global crash handler FIRST before anything else
+        // CRITICAL FIX: Save the DEFAULT handler BEFORE setting our custom one.
+        // The old code called getDefaultUncaughtExceptionHandler() INSIDE the handler,
+        // which returned the custom handler itself, causing infinite recursion → StackOverflowError.
+        val originalHandler = Thread.getDefaultUncaughtExceptionHandler()
+
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             Log.e("VayuApp", "FATAL CRASH on $thread", throwable)
             // Save crash info to SharedPreferences for debugging
@@ -24,9 +26,8 @@ class VayuApp : Application() {
                     .putLong("last_crash_time", System.currentTimeMillis())
                     .apply()
             } catch (_: Exception) {}
-            // Let the default handler kill the process
-            val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
-            defaultHandler?.uncaughtException(thread, throwable)
+            // Call the ORIGINAL handler (saved before we set our custom one)
+            originalHandler?.uncaughtException(thread, throwable)
         }
 
         super.onCreate()
@@ -36,7 +37,8 @@ class VayuApp : Application() {
                 description = "VAYU agent service"
                 setShowBadge(false)
             }
-            getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+            val nm = getSystemService(NotificationManager::class.java)
+            nm?.createNotificationChannel(channel)
         } catch (e: Exception) {
             Log.e("VayuApp", "Failed to create notification channel", e)
         }

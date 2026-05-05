@@ -2,6 +2,7 @@ package com.vayu.agent
 
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.view.WindowManager
@@ -67,8 +68,13 @@ class MainActivity : AppCompatActivity() {
                 binding.tvStatus.text = "Grant overlay permission first!"
                 return@setOnClickListener
             }
-            // Start HUD overlay for local task execution
-            startService(Intent(this, HUDService::class.java))
+            // FIX: Start HUD overlay as foreground service on API 26+ to prevent system kill
+            val hudIntent = Intent(this, HUDService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(hudIntent)
+            } else {
+                startService(hudIntent)
+            }
             VayuService.startTask(task)
         }
 
@@ -138,11 +144,11 @@ class MainActivity : AppCompatActivity() {
             RelayClient.isConnected.collectLatest { connected ->
                 if (connected) {
                     binding.tvRelayStatus.text = "MCP"
-                    binding.tvRelayStatus.setTextColor(getColor(R.color.green_accent))
+                    binding.tvRelayStatus.setTextColor(androidx.core.content.ContextCompat.getColor(this@MainActivity, R.color.green_accent))
                     binding.mcpDot.setBackgroundResource(R.drawable.mcp_indicator)
                 } else {
                     binding.tvRelayStatus.text = "MCP"
-                    binding.tvRelayStatus.setTextColor(getColor(R.color.gray))
+                    binding.tvRelayStatus.setTextColor(androidx.core.content.ContextCompat.getColor(this@MainActivity, R.color.gray))
                     binding.mcpDot.setBackgroundResource(R.drawable.mcp_indicator_off)
                 }
             }
@@ -152,7 +158,7 @@ class MainActivity : AppCompatActivity() {
             RelayClient.relayStatus.collectLatest { status ->
                 if (!RelayClient.isConnected.value) {
                     binding.tvRelayDetail.text = status
-                    binding.tvRelayDetail.setTextColor(getColor(R.color.gray))
+                    binding.tvRelayDetail.setTextColor(androidx.core.content.ContextCompat.getColor(this@MainActivity, R.color.gray))
                 } else {
                     val host = RelayClient.getRelayUrl()
                         .removePrefix("https://")
@@ -160,7 +166,7 @@ class MainActivity : AppCompatActivity() {
                         .removePrefix("wss://")
                         .removePrefix("ws://")
                     binding.tvRelayDetail.text = host
-                    binding.tvRelayDetail.setTextColor(getColor(R.color.green_accent))
+                    binding.tvRelayDetail.setTextColor(androidx.core.content.ContextCompat.getColor(this@MainActivity, R.color.green_accent))
                 }
             }
         }
@@ -191,13 +197,19 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateApiStatus() {
-        val config = SettingsManager.getConfig(this)
-        binding.tvApiProvider.text = "API: ${config.provider.replaceFirstChar { it.uppercase() }} / ${config.model}"
-        val hasKey = config.apiKey.isNotBlank() || config.provider == "gemini"
-        binding.tvApiKeyStatus.text = "${if (hasKey) "●" else "○"} API Key"
-        binding.tvApiKeyStatus.setTextColor(
-            getColor(if (hasKey) R.color.green_accent else R.color.red_accent)
-        )
+        try {
+            val config = SettingsManager.getConfig(this)
+            binding.tvApiProvider.text = "API: ${config.provider.replaceFirstChar { it.uppercase() }} / ${config.model}"
+            val hasKey = config.apiKey.isNotBlank() || config.provider == "gemini"
+            binding.tvApiKeyStatus.text = "${if (hasKey) "●" else "○"} API Key"
+            binding.tvApiKeyStatus.setTextColor(
+                androidx.core.content.ContextCompat.getColor(this,
+                    if (hasKey) R.color.green_accent else R.color.red_accent)
+            )
+        } catch (e: Exception) {
+            // Never let UI status update crash the Activity
+            android.util.Log.e("MainActivity", "updateApiStatus failed", e)
+        }
     }
 
     /** Show crash info from previous run if available (helps debugging). */
@@ -211,7 +223,9 @@ class MainActivity : AppCompatActivity() {
             if (crashClass != null && System.currentTimeMillis() - crashTime < 60000) {
                 // Show crash from last 60 seconds
                 binding.tvStatus.text = "CRASH: $crashClass — $crashMsg"
-                binding.tvStatus.setTextColor(getColor(R.color.red_accent))
+                binding.tvStatus.setTextColor(
+                    androidx.core.content.ContextCompat.getColor(this, R.color.red_accent)
+                )
                 // Clear so it doesn't show again
                 prefs.edit().clear().apply()
             }

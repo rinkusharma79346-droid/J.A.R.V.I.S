@@ -5,6 +5,7 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -80,25 +81,25 @@ class SettingsActivity : AppCompatActivity() {
 
         btnDetect.setOnClickListener {
             val key = etApiKey.text.toString().trim()
-            if (key.isBlank()) { tvValidationResult.text = "Paste an API key first"; tvValidationResult.setTextColor(getColor(R.color.red_accent)); tvValidationResult.visibility = View.VISIBLE; return@setOnClickListener }
+            if (key.isBlank()) { tvValidationResult.text = "Paste an API key first"; tvValidationResult.setTextColor(ContextCompat.getColor(this, R.color.red_accent)); tvValidationResult.visibility = View.VISIBLE; return@setOnClickListener }
             val detected = SettingsManager.detectProvider(key)
             val idx = providerKeys.indexOf(detected).coerceAtLeast(0)
             spinnerProvider.setSelection(idx)
-            tvValidationResult.text = "Detected: ${providers[idx]}"; tvValidationResult.setTextColor(getColor(R.color.orange_primary)); tvValidationResult.visibility = View.VISIBLE
+            tvValidationResult.text = "Detected: ${providers[idx]}"; tvValidationResult.setTextColor(ContextCompat.getColor(this, R.color.orange_primary)); tvValidationResult.visibility = View.VISIBLE
         }
 
         btnValidate.setOnClickListener {
             val pk = providerKeys[spinnerProvider.selectedItemPosition]
             val apiKey = etApiKey.text.toString().trim()
-            if (apiKey.isBlank()) { tvValidationResult.text = "Enter an API key first"; tvValidationResult.setTextColor(getColor(R.color.red_accent)); tvValidationResult.visibility = View.VISIBLE; return@setOnClickListener }
-            btnValidate.isEnabled = false; btnValidate.text = "Testing..."; tvValidationResult.text = "Connecting..."; tvValidationResult.setTextColor(getColor(R.color.amber_accent)); tvValidationResult.visibility = View.VISIBLE
+            if (apiKey.isBlank()) { tvValidationResult.text = "Enter an API key first"; tvValidationResult.setTextColor(ContextCompat.getColor(this, R.color.red_accent)); tvValidationResult.visibility = View.VISIBLE; return@setOnClickListener }
+            btnValidate.isEnabled = false; btnValidate.text = "Testing..."; tvValidationResult.text = "Connecting..."; tvValidationResult.setTextColor(ContextCompat.getColor(this, R.color.amber_accent)); tvValidationResult.visibility = View.VISIBLE
             validateJob?.cancel()
             validateJob = CoroutineScope(Dispatchers.Main).launch {
                 val config = ProviderConfig(pk, apiKey, spinnerModel.selectedItem?.toString() ?: "", etBaseUrl.text.toString().trim())
                 val result = ProviderFactory.create(config).validate()
                 btnValidate.isEnabled = true; btnValidate.text = "TEST CONNECTION"
-                if (result.success) { tvValidationResult.text = "✓ ${result.message}"; tvValidationResult.setTextColor(getColor(R.color.green_accent)); SettingsManager.setApiKey(this@SettingsActivity, pk, apiKey); SettingsManager.setProvider(this@SettingsActivity, pk) }
-                else { tvValidationResult.text = "✗ ${result.message}"; tvValidationResult.setTextColor(getColor(R.color.red_accent)) }
+                if (result.success) { tvValidationResult.text = "✓ ${result.message}"; tvValidationResult.setTextColor(ContextCompat.getColor(this@SettingsActivity, R.color.green_accent)); SettingsManager.setApiKey(this@SettingsActivity, pk, apiKey); SettingsManager.setProvider(this@SettingsActivity, pk) }
+                else { tvValidationResult.text = "✗ ${result.message}"; tvValidationResult.setTextColor(ContextCompat.getColor(this, R.color.red_accent)) }
             }
         }
 
@@ -119,10 +120,10 @@ class SettingsActivity : AppCompatActivity() {
             RelayClient.isConnected.collectLatest { connected ->
                 if (connected) {
                     tvRelayStatus.text = "● Connected"
-                    tvRelayStatus.setTextColor(getColor(R.color.green_accent))
+                    tvRelayStatus.setTextColor(ContextCompat.getColor(this@SettingsActivity, R.color.green_accent))
                 } else {
                     tvRelayStatus.text = "○ Disconnected"
-                    tvRelayStatus.setTextColor(getColor(R.color.gray))
+                    tvRelayStatus.setTextColor(ContextCompat.getColor(this@SettingsActivity, R.color.gray))
                 }
             }
         }
@@ -130,7 +131,7 @@ class SettingsActivity : AppCompatActivity() {
             RelayClient.relayStatus.collectLatest { status ->
                 if (!RelayClient.isConnected.value) {
                     tvRelayStatus.text = "○ $status"
-                    tvRelayStatus.setTextColor(getColor(R.color.gray))
+                    tvRelayStatus.setTextColor(ContextCompat.getColor(this@SettingsActivity, R.color.gray))
                 }
             }
         }
@@ -152,14 +153,14 @@ class SettingsActivity : AppCompatActivity() {
             val url = etRelayUrl.text.toString().trim()
             if (url.isBlank()) {
                 tvRelayStatus.text = "○ Enter relay URL first"
-                tvRelayStatus.setTextColor(getColor(R.color.red_accent))
+                tvRelayStatus.setTextColor(ContextCompat.getColor(this, R.color.red_accent))
                 return@setOnClickListener
             }
 
             btnTestRelay.isEnabled = false
             btnTestRelay.text = "Testing..."
             tvRelayStatus.text = "○ Checking..."
-            tvRelayStatus.setTextColor(getColor(R.color.amber_accent))
+            tvRelayStatus.setTextColor(ContextCompat.getColor(this, R.color.amber_accent))
 
             relayTestJob?.cancel()
             relayTestJob = CoroutineScope(Dispatchers.Main).launch {
@@ -170,13 +171,13 @@ class SettingsActivity : AppCompatActivity() {
 
                 if (success) {
                     tvRelayStatus.text = "● $message"
-                    tvRelayStatus.setTextColor(getColor(R.color.green_accent))
+                    tvRelayStatus.setTextColor(ContextCompat.getColor(this@SettingsActivity, R.color.green_accent))
                     RelayClient.setRelayUrl(url)
                     switchRelay.isChecked = true
                     RelayClient.setEnabled(true)
                 } else {
                     tvRelayStatus.text = "✗ $message"
-                    tvRelayStatus.setTextColor(getColor(R.color.red_accent))
+                    tvRelayStatus.setTextColor(ContextCompat.getColor(this, R.color.red_accent))
                 }
             }
         }
