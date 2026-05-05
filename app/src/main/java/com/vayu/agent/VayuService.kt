@@ -17,6 +17,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
 import java.io.ByteArrayOutputStream
+import kotlin.coroutines.resume
 import java.util.LinkedList
 
 /**
@@ -287,6 +288,7 @@ class VayuService : AccessibilityService() {
     //  On API 29 (Android 10), we use the legacy rootInActiveWindow approach
     // ════════════════════════════════════════════════
 
+    @android.annotation.SuppressLint("NewApi")
     private suspend fun captureScreen(): String? = withContext(Dispatchers.Main) {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -304,6 +306,7 @@ class VayuService : AccessibilityService() {
         }
     }
 
+    @android.annotation.SuppressLint("NewApi")
     private suspend fun captureScreenApi30(): String? = withContext(Dispatchers.Main) {
         try {
             suspendCancellableCoroutine<String?> { cont ->
@@ -315,7 +318,7 @@ class VayuService : AccessibilityService() {
                             }
                             if (hwBitmap == null) {
                                 Log.e(TAG, "wrapHardwareBuffer returned null")
-                                cont.resumeWith(Result.success(null))
+                                cont.resume(null)
                                 return
                             }
 
@@ -325,7 +328,7 @@ class VayuService : AccessibilityService() {
 
                             if (bitmap == null) {
                                 Log.e(TAG, "Failed to copy hardware bitmap")
-                                cont.resumeWith(Result.success(null))
+                                cont.resume(null)
                                 return
                             }
 
@@ -340,16 +343,16 @@ class VayuService : AccessibilityService() {
                             bitmap.recycle()
                             if (scaled !== bitmap) scaled.recycle()
 
-                            cont.resumeWith(Result.success(base64))
+                            cont.resume(base64)
                         } catch (e: Exception) {
                             Log.e(TAG, "Screenshot processing failed: ${e.message}")
-                            cont.resumeWith(Result.success(null))
+                            cont.resume(null)
                         }
                     }
 
                     override fun onFailure(errorCode: Int) {
                         Log.e(TAG, "Screenshot failed with code: $errorCode")
-                        cont.resumeWith(Result.success(null))
+                        cont.resume(null)
                     }
                 })
             }
@@ -359,6 +362,7 @@ class VayuService : AccessibilityService() {
         }
     }
 
+    @android.annotation.SuppressLint("NewApi")
     suspend fun captureScreenPublic(): String? = captureScreen()
 
     fun getUiTreePublic(): String? {
@@ -374,6 +378,7 @@ class VayuService : AccessibilityService() {
     //  AUTO-CAPTURE
     // ════════════════════════════════════════════════
 
+    @android.annotation.SuppressLint("NewApi")
     suspend fun autoCapture(): Pair<String?, String?> {
         delay(80)
         val b64 = captureScreen()
@@ -387,14 +392,18 @@ class VayuService : AccessibilityService() {
     //  DIRECT ACTION EXECUTION
     // ════════════════════════════════════════════════
 
-    fun executeDirectAction(action: String, x: Int, y: Int, x2: Int, y2: Int, text: String, duration: Long = 0L) {
+    suspend fun executeDirectAction(action: String, x: Int, y: Int, x2: Int, y2: Int, text: String, duration: Long = 0L) {
         val agentAction = AgentAction(
             action = action,
             x = x, y = y,
             x2 = x2, y2 = y2,
             text = text
         )
-        kotlinx.coroutines.runBlocking { executeAction(agentAction) }
+        try {
+            executeAction(agentAction)
+        } catch (e: Exception) {
+            Log.e(TAG, "executeDirectAction failed: ${e.message}")
+        }
     }
 
     // ════════════════════════════════════════════════
@@ -666,7 +675,7 @@ class VayuService : AccessibilityService() {
             val gesture = GestureDescription.Builder()
                 .addStroke(GestureDescription.StrokeDescription(path, 0, 80))
                 .build()
-            dispatchGesture(gesture, null, null)
+            try { dispatchGesture(gesture, null, null) } catch (e: Exception) { Log.e(TAG, "dispatchGesture Enter failed: ${e.message}") }
             Log.d(TAG, "Pressed Enter via gesture at ($enterX, $enterY)")
         }
     }
@@ -721,7 +730,7 @@ class VayuService : AccessibilityService() {
                     val gesture = GestureDescription.Builder()
                         .addStroke(GestureDescription.StrokeDescription(path, 0, 50))
                         .build()
-                    dispatchGesture(gesture, null, null)
+                    try { dispatchGesture(gesture, null, null) } catch (e: Exception) { Log.e(TAG, "dispatchGesture TAP failed: ${e.message}") }
                     Log.d(TAG, "TAP at (${action.x}, ${action.y})")
                 }
 
@@ -734,7 +743,7 @@ class VayuService : AccessibilityService() {
                     val gesture = GestureDescription.Builder()
                         .addStroke(GestureDescription.StrokeDescription(path, 0, duration))
                         .build()
-                    dispatchGesture(gesture, null, null)
+                    try { dispatchGesture(gesture, null, null) } catch (e: Exception) { Log.e(TAG, "dispatchGesture ${action.action} failed: ${e.message}") }
                     Log.d(TAG, "${action.action} from (${action.x},${action.y}) to (${action.x2},${action.y2})")
                 }
 
@@ -743,7 +752,7 @@ class VayuService : AccessibilityService() {
                     val tapGesture = GestureDescription.Builder()
                         .addStroke(GestureDescription.StrokeDescription(path, 0, 50))
                         .build()
-                    dispatchGesture(tapGesture, null, null)
+                    try { dispatchGesture(tapGesture, null, null) } catch (e: Exception) { Log.e(TAG, "dispatchGesture TYPE tap failed: ${e.message}") }
 
                     delay(200)
 
@@ -859,7 +868,7 @@ class VayuService : AccessibilityService() {
                     val gesture = GestureDescription.Builder()
                         .addStroke(GestureDescription.StrokeDescription(path, 0, 500))
                         .build()
-                    dispatchGesture(gesture, null, null)
+                    try { dispatchGesture(gesture, null, null) } catch (e: Exception) { Log.e(TAG, "dispatchGesture LONG_PRESS failed: ${e.message}") }
                     Log.d(TAG, "LONG_PRESS at (${action.x}, ${action.y})")
                 }
 
