@@ -1,6 +1,12 @@
+# ═══════════════════════════════════════════════════════════════════
+# V.A.Y.U Agent — Codemagic CI/CD Configuration
+# Target: Samsung Galaxy A30 (SM-A305F) · Android 10 (API 29) · ARM64
+# ═══════════════════════════════════════════════════════════════════
+
 workflows:
-  android-apk:
-    name: V.A.Y.U APK Build
+  # ─── Debug APK Build (fast, no signing needed) ───
+  android-debug:
+    name: V.A.Y.U Debug APK
     max_build_duration: 30
     instance_type: mac_mini_m2
 
@@ -8,6 +14,17 @@ workflows:
       java: 17
       vars:
         GEMINI_API_KEY: ""
+
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: main
+          include: true
+        - pattern: master
+          include: true
+        - pattern: codemagic
+          include: true
 
     scripts:
       - name: Set up local.properties
@@ -19,24 +36,198 @@ workflows:
         script: |
           chmod +x gradlew || true
 
-      - name: Generate Gradle Wrapper if missing
-        script: |
-          if [ ! -f "gradlew" ]; then
-            gradle wrapper --gradle-version 8.5
-            chmod +x gradlew
-          fi
-
       - name: Build Debug APK
         script: |
-          ./gradlew assembleDebug
+          ./gradlew assembleDebug --no-daemon
         environment:
-          GRADLE_OPTS: "-Xmx4g -Dorg.gradle.daemon=false"
+          GRADLE_OPTS: "-Xmx4g -Dorg.gradle.daemon=false -Dorg.gradle.parallel=true"
+
+      - name: Verify APK
+        script: |
+          APK_PATH="app/build/outputs/apk/debug/app-debug.apk"
+          if [ -f "$APK_PATH" ]; then
+            echo "✅ Debug APK built successfully"
+            ls -lh "$APK_PATH"
+            # Verify APK is valid
+            $ANDROID_HOME/build-tools/34.0.0/aapt dump badging "$APK_PATH" | head -5
+          else
+            echo "❌ Debug APK not found"
+            exit 1
+          fi
+
+    artifacts:
+      - app/build/outputs/apk/debug/*.apk
+
+    publishing:
+      email:
+        recipients:
+          - rinkusharma79346@gmail.com
+        notify:
+          success: true
+          failure: true
+      github:
+        release: draft
+
+  # ─── Release APK Build (signed, for distribution) ───
+  android-release:
+    name: V.A.Y.U Release APK
+    max_build_duration: 30
+    instance_type: mac_mini_m2
+
+    environment:
+      java: 17
+      vars:
+        GEMINI_API_KEY: ""
+        # ─── Keystore variables (set in Codemagic UI → Environment Variables) ───
+        # CM_KEYSTORE_PATH:   (auto-set by Codemagic when you upload keystore)
+        # CM_KEYSTORE_PASSWORD: (set in Codemagic UI)
+        # CM_KEY_ALIAS:         (set in Codemagic UI)
+        # CM_KEY_PASSWORD:      (set in Codemagic UI)
+
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: release
+          include: true
+        - pattern: v*
+          include: true
+
+    scripts:
+      - name: Set up local.properties
+        script: |
+          echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
+          echo "GEMINI_API_KEY=$GEMINI_API_KEY" >> local.properties
+
+      - name: Grant execute permission for gradlew
+        script: |
+          chmod +x gradlew || true
+
+      - name: Set up signing keystore
+        script: |
+          # If Codemagic injected keystore env vars, use them
+          # Otherwise, fall back to the debug keystore in the repo
+          if [ -z "$CM_KEYSTORE_PATH" ]; then
+            echo "⚠️ No Codemagic keystore configured — using debug keystore"
+            export CM_KEYSTORE_PATH="$(pwd)/app/debug.keystore"
+            export CM_KEYSTORE_PASSWORD="android"
+            export CM_KEY_ALIAS="androiddebugkey"
+            export CM_KEY_PASSWORD="android"
+          else
+            echo "✅ Using Codemagic-uploaded keystore"
+          fi
 
       - name: Build Release APK
         script: |
-          ./gradlew assembleRelease
+          # Export keystore env vars for Gradle
+          if [ -z "$CM_KEYSTORE_PATH" ]; then
+            export CM_KEYSTORE_PATH="$(pwd)/app/debug.keystore"
+            export CM_KEYSTORE_PASSWORD="android"
+            export CM_KEY_ALIAS="androiddebugkey"
+            export CM_KEY_PASSWORD="android"
+          fi
+          ./gradlew assembleRelease --no-daemon
         environment:
-          GRADLE_OPTS: "-Xmx4g -Dorg.gradle.daemon=false"
+          GRADLE_OPTS: "-Xmx4g -Dorg.gradle.daemon=false -Dorg.gradle.parallel=true"
+
+      - name: Verify APK
+        script: |
+          APK_PATH="app/build/outputs/apk/release/app-release.apk"
+          if [ -f "$APK_PATH" ]; then
+            echo "✅ Release APK built successfully"
+            ls -lh "$APK_PATH"
+            # Verify APK is valid and can be installed
+            $ANDROID_HOME/build-tools/34.0.0/aapt dump badging "$APK_PATH" | head -5
+            echo "---"
+            $ANDROID_HOME/build-tools/34.0.0/aapt dump permissions "$APK_PATH"
+          else
+            echo "❌ Release APK not found at $APK_PATH"
+            echo "Listing all APK files:"
+            find app/build/outputs -name "*.apk" 2>/dev/null || echo "No APKs found"
+            exit 1
+          fi
+
+    artifacts:
+      - app/build/outputs/apk/release/*.apk
+      - app/build/outputs/apk/debug/*.apk
+
+    publishing:
+      email:
+        recipients:
+          - rinkusharma79346@gmail.com
+        notify:
+          success: true
+          failure: true
+      github:
+        release: draft
+        tags:
+          - v10.0
+
+  # ─── Both Debug + Release (manual trigger) ───
+  android-full-build:
+    name: V.A.Y.U Full Build (Debug + Release)
+    max_build_duration: 45
+    instance_type: mac_mini_m2
+
+    environment:
+      java: 17
+      vars:
+        GEMINI_API_KEY: ""
+
+    triggering:
+      events:
+        - custom
+
+    scripts:
+      - name: Set up local.properties
+        script: |
+          echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
+          echo "GEMINI_API_KEY=$GEMINI_API_KEY" >> local.properties
+
+      - name: Grant execute permission for gradlew
+        script: |
+          chmod +x gradlew || true
+
+      - name: Build Debug APK
+        script: |
+          ./gradlew assembleDebug --no-daemon
+        environment:
+          GRADLE_OPTS: "-Xmx4g -Dorg.gradle.daemon=false -Dorg.gradle.parallel=true"
+
+      - name: Build Release APK (with debug keystore)
+        script: |
+          export CM_KEYSTORE_PATH="$(pwd)/app/debug.keystore"
+          export CM_KEYSTORE_PASSWORD="android"
+          export CM_KEY_ALIAS="androiddebugkey"
+          export CM_KEY_PASSWORD="android"
+          ./gradlew assembleRelease --no-daemon
+        environment:
+          GRADLE_OPTS: "-Xmx4g -Dorg.gradle.daemon=false -Dorg.gradle.parallel=true"
+
+      - name: Verify all APKs
+        script: |
+          echo "═══ Debug APK ═══"
+          DEBUG_APK="app/build/outputs/apk/debug/app-debug.apk"
+          if [ -f "$DEBUG_APK" ]; then
+            echo "✅ Debug APK:"
+            ls -lh "$DEBUG_APK"
+            $ANDROID_HOME/build-tools/34.0.0/aapt dump badging "$DEBUG_APK" | head -3
+          else
+            echo "❌ Debug APK missing"
+          fi
+          echo ""
+          echo "═══ Release APK ═══"
+          RELEASE_APK="app/build/outputs/apk/release/app-release.apk"
+          if [ -f "$RELEASE_APK" ]; then
+            echo "✅ Release APK:"
+            ls -lh "$RELEASE_APK"
+            $ANDROID_HOME/build-tools/34.0.0/aapt dump badging "$RELEASE_APK" | head -3
+          else
+            echo "❌ Release APK missing"
+          fi
+          echo ""
+          echo "═══ All APKs ═══"
+          find app/build/outputs -name "*.apk" -exec ls -lh {} \;
 
     artifacts:
       - app/build/outputs/apk/debug/*.apk
@@ -49,3 +240,5 @@ workflows:
         notify:
           success: true
           failure: true
+      github:
+        release: draft

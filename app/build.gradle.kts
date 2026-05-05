@@ -30,17 +30,22 @@ android {
 
     signingConfigs {
         create("release") {
-            storeFile = file("/home/z/android-sdk/debug.keystore")
-            storePassword = "android"
-            keyAlias = "androiddebugkey"
-            keyPassword = "android"
+            // Codemagic will inject CM_KEYSTORE_PATH, CM_KEY_PASSWORD, CM_KEY_ALIAS, CM_KEY_PASSWORD
+            val ksPath = System.getenv("CM_KEYSTORE_PATH")
+            val ksPassword = System.getenv("CM_KEYSTORE_PASSWORD") ?: "android"
+            val ksAlias = System.getenv("CM_KEY_ALIAS") ?: "androiddebugkey"
+            val ksKeyPassword = System.getenv("CM_KEY_PASSWORD") ?: "android"
+            storeFile = if (!ksPath.isNullOrBlank()) file(ksPath) else file("debug.keystore")
+            storePassword = ksPassword
+            keyAlias = ksAlias
+            keyPassword = ksKeyPassword
         }
     }
 
     buildTypes {
         release {
-            isMinifyEnabled = true
-            isShrinkResources = true
+            isMinifyEnabled = false
+            isShrinkResources = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = signingConfigs.getByName("release")
         }
