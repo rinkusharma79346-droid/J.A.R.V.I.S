@@ -99,7 +99,7 @@ class SettingsActivity : AppCompatActivity() {
                 val result = ProviderFactory.create(config).validate()
                 btnValidate.isEnabled = true; btnValidate.text = "TEST CONNECTION"
                 if (result.success) { tvValidationResult.text = "✓ ${result.message}"; tvValidationResult.setTextColor(ContextCompat.getColor(this@SettingsActivity, R.color.green_accent)); SettingsManager.setApiKey(this@SettingsActivity, pk, apiKey); SettingsManager.setProvider(this@SettingsActivity, pk) }
-                else { tvValidationResult.text = "✗ ${result.message}"; tvValidationResult.setTextColor(ContextCompat.getColor(this, R.color.red_accent)) }
+                else { tvValidationResult.text = "✗ ${result.message}"; tvValidationResult.setTextColor(ContextCompat.getColor(this@SettingsActivity, R.color.red_accent)) }
             }
         }
 
@@ -177,7 +177,7 @@ class SettingsActivity : AppCompatActivity() {
                     RelayClient.setEnabled(true)
                 } else {
                     tvRelayStatus.text = "✗ $message"
-                    tvRelayStatus.setTextColor(ContextCompat.getColor(this, R.color.red_accent))
+                    tvRelayStatus.setTextColor(ContextCompat.getColor(this@SettingsActivity, R.color.red_accent))
                 }
             }
         }
