@@ -383,3 +383,13 @@ This project is licensed under the Apache License 2.0 — see the [LICENSE](LICE
 <p>If you find V.A.Y.U useful, consider giving it a ⭐ — it helps more than you think!</p>
 
 </div>
+
+## Render Deployment (Important)
+
+This repo now supports **both** relay directories for Render rootDir compatibility:
+
+- `vayu-relay/` (recommended)
+- `jarvis-relay/` (legacy compatibility alias)
+
+Use one of these exactly in Render **Root Directory**.
+
