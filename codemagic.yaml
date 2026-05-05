@@ -155,10 +155,6 @@ workflows:
       vars:
         GEMINI_API_KEY: "placeholder"
 
-    triggering:
-      events:
-        - custom
-
     scripts:
       - name: Set up local.properties
         script: |
