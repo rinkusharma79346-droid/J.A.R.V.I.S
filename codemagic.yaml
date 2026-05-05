@@ -13,9 +13,7 @@ workflows:
     environment:
       java: 17
       vars:
-        GEMINI_API_KEY:
-          value: "placeholder"
-          required: false
+        GEMINI_API_KEY: "placeholder"
 
     triggering:
       events:
@@ -75,9 +73,7 @@ workflows:
     environment:
       java: 17
       vars:
-        GEMINI_API_KEY:
-          value: "placeholder"
-          required: false
+        GEMINI_API_KEY: "placeholder"
 
     triggering:
       events:
@@ -157,9 +153,7 @@ workflows:
     environment:
       java: 17
       vars:
-        GEMINI_API_KEY:
-          value: "placeholder"
-          required: false
+        GEMINI_API_KEY: "placeholder"
 
     triggering:
       events:
