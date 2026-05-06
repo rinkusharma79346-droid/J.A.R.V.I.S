@@ -393,3 +393,25 @@ This repo now supports **both** relay directories for Render rootDir compatibili
 
 Use one of these exactly in Render **Root Directory**.
 
+Recommended Render values for the MCP relay:
+
+- **Root Directory:** `vayu-relay` (or `jarvis-relay` if your existing service already uses that legacy name)
+- **Build Command:** `npm install`
+- **Start Command:** `node server.js`
+
+Deploy check after Render finishes:
+
+```bash
+curl https://<your-render-service>.onrender.com/api/call
+```
+
+That GET request should return a JSON usage message. Actual tool execution must use `POST /api/call` (or alias `POST /api/tools/call`) with a JSON body such as:
+
+```bash
+curl -X POST https://<your-render-service>.onrender.com/api/call \
+  -H "Content-Type: application/json" \
+  -d '{"tool":"vayu_read_screen"}'
+```
+
+If your Render service accidentally has **Root Directory blank**, this repo now also includes a root `npm start` fallback that launches the same relay server.
+

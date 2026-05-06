@@ -48,6 +48,8 @@ app.get('/api/health', (req, res) => {
     protocol: 'HTTP Long-Polling + MCP SSE + Streamable HTTP',
     devices: devices.size,
     pendingResponses: responses.size,
+    syncCallEndpoint: '/api/call',
+    supportedSyncTools: SYNC_CALL_TOOLS,
     uptime: process.uptime(),
     uptimeMs: Date.now() - startTime,
     timestamp: Date.now()
@@ -344,7 +346,19 @@ function findNodeBoundsByText(uiTree = '', query = '') {
   return null;
 }
 
-app.post('/api/call', async (req, res) => {
+const SYNC_CALL_TOOLS = ['vayu_read_screen', 'vayu_wait_for_text', 'vayu_find_and_tap', 'vayu_open_url_and_wait'];
+
+app.get('/api/call', (req, res) => {
+  res.json({
+    ok: true,
+    message: 'Synchronous tool bridge is deployed. Use POST /api/call with JSON: { tool, args?, deviceId?, timeoutMs? }.',
+    aliases: ['POST /api/call', 'POST /api/tools/call', 'POST /api/tool/call'],
+    supportedTools: SYNC_CALL_TOOLS,
+    example: { tool: 'vayu_read_screen' }
+  });
+});
+
+const handleSyncToolCall = async (req, res) => {
   const { tool, args = {}, deviceId, timeoutMs = 45000 } = req.body || {};
   if (!tool) return res.status(400).json({ ok: false, error: 'tool is required' });
   const targetDevice = pickTargetDevice(deviceId);
@@ -418,12 +432,16 @@ app.post('/api/call', async (req, res) => {
     return res.status(400).json({
       ok: false,
       error: `Unknown tool '${tool}'`,
-      supportedTools: ['vayu_read_screen', 'vayu_wait_for_text', 'vayu_find_and_tap', 'vayu_open_url_and_wait']
+      supportedTools: SYNC_CALL_TOOLS
     });
   } catch (e) {
     return res.status(500).json({ ok: false, error: e.message || String(e) });
   }
-});
+};
+
+app.post('/api/call', handleSyncToolCall);
+app.post('/api/tools/call', handleSyncToolCall);
+app.post('/api/tool/call', handleSyncToolCall);
 
 // ─── MCP Client: List Devices ───
 app.get('/api/devices', (req, res) => {
@@ -492,13 +510,16 @@ app.get('/', (req, res) => {
     name: 'V.A.Y.U MCP Relay Server',
     version: '6.0.0',
     protocol: 'HTTP Long-Polling + MCP SSE + Streamable HTTP',
-    features: ['auto-capture', 'sequence-commands', 'chrome-url-macro', 'content-workflows', 'mcp-sse', 'mcp-streamable-http'],
+    features: ['auto-capture', 'sequence-commands', 'chrome-url-macro', 'content-workflows', 'sync-api-call', 'mcp-sse', 'mcp-streamable-http'],
     endpoints: {
       'POST /api/register': 'Device registration',
       'GET  /api/poll': 'Device long-poll for commands',
       'POST /api/status': 'Device push status',
       'POST /api/response': 'Device push command response',
       'POST /api/command': 'MCP client send command',
+      'POST /api/call': 'Synchronous tool bridge (returns result directly)',
+      'GET  /api/call': 'Synchronous bridge usage/deploy check',
+      'POST /api/tools/call': 'Alias for POST /api/call',
       'GET  /api/response/:requestId': 'MCP client poll for response',
       'GET  /api/devices': 'List connected devices',
       'GET  /api/device/:deviceId/status': 'Get device status',
