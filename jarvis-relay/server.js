@@ -285,6 +285,146 @@ app.get('/api/response/:requestId', async (req, res) => {
   });
 });
 
+// ─── Synchronous Tool Bridge (No SSE required) ───
+function pickTargetDevice(deviceId) {
+  if (deviceId) return devices.has(deviceId) ? deviceId : null;
+  for (const [id, dev] of devices) {
+    if (dev.connected && Date.now() - dev.lastSeen < DEVICE_STALE_MS) return id;
+  }
+  return null;
+}
+
+function waitForResponse(requestId, timeoutMs = 45000) {
+  return new Promise((resolve) => {
+    const started = Date.now();
+    const timer = setInterval(() => {
+      const hit = responses.get(requestId);
+      if (hit) {
+        responses.delete(requestId);
+        clearInterval(timer);
+        resolve({ ok: true, response: hit.response });
+        return;
+      }
+      if (Date.now() - started >= timeoutMs) {
+        clearInterval(timer);
+        resolve({ ok: false, error: `Timeout after ${timeoutMs}ms` });
+      }
+    }, 150);
+  });
+}
+
+function extractVisibleText(uiTree = '') {
+  const out = [];
+  const re = /text="([^"]*)"/g;
+  let m;
+  while ((m = re.exec(uiTree)) !== null) {
+    const t = (m[1] || '').trim();
+    if (t) out.push(t);
+  }
+  return [...new Set(out)];
+}
+
+function findNodeBoundsByText(uiTree = '', query = '') {
+  const safe = query.toLowerCase();
+  const nodeRe = /<node\b[^>]*>/g;
+  const boundsRe = /bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/;
+  const textRe = /text="([^"]*)"/;
+  const descRe = /content-desc="([^"]*)"/;
+  let n;
+  while ((n = nodeRe.exec(uiTree)) !== null) {
+    const tag = n[0];
+    const t = (textRe.exec(tag)?.[1] || '').toLowerCase();
+    const d = (descRe.exec(tag)?.[1] || '').toLowerCase();
+    if (!t.includes(safe) && !d.includes(safe)) continue;
+    const b = boundsRe.exec(tag);
+    if (!b) continue;
+    const x1 = Number(b[1]), y1 = Number(b[2]), x2 = Number(b[3]), y2 = Number(b[4]);
+    return { x: Math.floor((x1 + x2) / 2), y: Math.floor((y1 + y2) / 2) };
+  }
+  return null;
+}
+
+app.post('/api/call', async (req, res) => {
+  const { tool, args = {}, deviceId, timeoutMs = 45000 } = req.body || {};
+  if (!tool) return res.status(400).json({ ok: false, error: 'tool is required' });
+  const targetDevice = pickTargetDevice(deviceId);
+  if (!targetDevice) return res.status(404).json({ ok: false, error: 'No connected device found' });
+
+  const submitAndWait = async (type, payload = {}) => {
+    const requestId = crypto.randomUUID();
+    const dev = devices.get(targetDevice);
+    dev.pendingCommands.push({ requestId, type, ...payload, timestamp: Date.now() });
+    const result = await waitForResponse(requestId, timeoutMs);
+    if (!result.ok) return { ok: false, error: result.error, requestId, deviceId: targetDevice };
+    return { ok: true, requestId, deviceId: targetDevice, result: result.response };
+  };
+
+  try {
+    if (tool === 'vayu_read_screen') {
+      const r = await submitAndWait('get_screenshot_and_ui', {});
+      if (!r.ok) return res.status(504).json(r);
+      const uiTree = r.result.uiTree || '';
+      return res.json({ ...r, screenText: extractVisibleText(uiTree).join('\n') });
+    }
+
+    if (tool === 'vayu_wait_for_text') {
+      const text = (args.text || '').trim();
+      if (!text) return res.status(400).json({ ok: false, error: 'args.text required' });
+      const end = Date.now() + timeoutMs;
+      while (Date.now() < end) {
+        const r = await submitAndWait('get_ui_tree', {});
+        if (!r.ok) return res.status(504).json(r);
+        const ui = (r.result.uiTree || '').toLowerCase();
+        if (ui.includes(text.toLowerCase())) return res.json({ ...r, matched: true, text });
+        await new Promise((x) => setTimeout(x, 700));
+      }
+      return res.status(504).json({ ok: false, error: `Text not found within ${timeoutMs}ms`, text });
+    }
+
+    if (tool === 'vayu_find_and_tap') {
+      const text = (args.text || '').trim();
+      if (!text) return res.status(400).json({ ok: false, error: 'args.text required' });
+      const look = await submitAndWait('get_screenshot_and_ui', {});
+      if (!look.ok) return res.status(504).json(look);
+      const point = findNodeBoundsByText(look.result.uiTree || '', text);
+      if (!point) return res.status(404).json({ ok: false, error: `Element text not found: ${text}` });
+      const tap = await submitAndWait('tap', { x: point.x, y: point.y, capture: true });
+      if (!tap.ok) return res.status(504).json(tap);
+      return res.json({ ...tap, tapped: point, matchedText: text });
+    }
+
+    if (tool === 'vayu_open_url_and_wait') {
+      const url = args.url;
+      if (!url) return res.status(400).json({ ok: false, error: 'args.url required' });
+      const open = await submitAndWait('open_chrome_url', { url });
+      if (!open.ok) return res.status(504).json(open);
+      const waitText = args.waitText || '';
+      if (waitText) {
+        const wait = await (async () => {
+          const end = Date.now() + timeoutMs;
+          while (Date.now() < end) {
+            const r = await submitAndWait('get_ui_tree', {});
+            if (!r.ok) return r;
+            if ((r.result.uiTree || '').toLowerCase().includes(waitText.toLowerCase())) return { ok: true, result: r.result };
+            await new Promise((x) => setTimeout(x, 700));
+          }
+          return { ok: false, error: `waitText not found: ${waitText}` };
+        })();
+        if (!wait.ok) return res.status(504).json(wait);
+      }
+      return res.json(open);
+    }
+
+    return res.status(400).json({
+      ok: false,
+      error: `Unknown tool '${tool}'`,
+      supportedTools: ['vayu_read_screen', 'vayu_wait_for_text', 'vayu_find_and_tap', 'vayu_open_url_and_wait']
+    });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: e.message || String(e) });
+  }
+});
+
 // ─── MCP Client: List Devices ───
 app.get('/api/devices', (req, res) => {
   const deviceList = [];
