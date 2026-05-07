@@ -50,6 +50,7 @@ app.get('/api/health', (req, res) => {
     pendingResponses: responses.size,
     syncCallEndpoint: '/api/call',
     supportedSyncTools: SYNC_CALL_TOOLS,
+    modelRecommendEndpoint: '/api/models/recommend',
     uptime: process.uptime(),
     uptimeMs: Date.now() - startTime,
     timestamp: Date.now()
@@ -218,7 +219,7 @@ app.post('/api/command', (req, res) => {
 
     device.pendingCommands.push({
       requestId,
-      type,
+      type: normalizeDeviceCommandType(type),
       task,
       ...rest,
       timestamp: Date.now()
@@ -232,7 +233,7 @@ app.post('/api/command', (req, res) => {
     if (dev.connected && Date.now() - dev.lastSeen < DEVICE_STALE_MS) {
       dev.pendingCommands.push({
         requestId,
-        type,
+        type: normalizeDeviceCommandType(type),
         task,
         ...rest,
         timestamp: Date.now()
@@ -296,6 +297,18 @@ function pickTargetDevice(deviceId) {
   return null;
 }
 
+const DEVICE_COMMAND_ALIASES = {
+  get_ui_tree: 'ui_tree',
+  get_screenshot_and_ui: 'screenshot_and_ui',
+  read_screen: 'screenshot_and_ui',
+  screen_text: 'ui_tree',
+  paste_text: 'type_text'
+};
+
+function normalizeDeviceCommandType(type) {
+  return DEVICE_COMMAND_ALIASES[type] || type;
+}
+
 function waitForResponse(requestId, timeoutMs = 45000) {
   return new Promise((resolve) => {
     const started = Date.now();
@@ -315,38 +328,145 @@ function waitForResponse(requestId, timeoutMs = 45000) {
   });
 }
 
+function decodeUiValue(value = '') {
+  return String(value)
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, '&')
+    .trim();
+}
+
+function normalizeText(value = '') {
+  return decodeUiValue(value).toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+function parseUiTreeNodes(uiTree = '') {
+  const nodes = [];
+
+  // Android app parser format:
+  // [android.widget.TextView] text='OK' desc='' resId='...' bounds=[1,2][3,4] click edit
+  const lineRe = /\[([^\]]+)\]\s+text='([^']*)'\s+desc='([^']*)'\s+resId='([^']*)'\s+bounds=\[(\d+),(\d+)\]\[(\d+),(\d+)\]([^\n]*)/g;
+  let line;
+  while ((line = lineRe.exec(uiTree)) !== null) {
+    const flags = line[9] || '';
+    const x1 = Number(line[5]), y1 = Number(line[6]), x2 = Number(line[7]), y2 = Number(line[8]);
+    nodes.push({
+      className: decodeUiValue(line[1]),
+      text: decodeUiValue(line[2]),
+      desc: decodeUiValue(line[3]),
+      resId: decodeUiValue(line[4]),
+      bounds: { x1, y1, x2, y2, x: Math.floor((x1 + x2) / 2), y: Math.floor((y1 + y2) / 2), width: x2 - x1, height: y2 - y1 },
+      clickable: /\bclick\b/.test(flags),
+      editable: /\bedit\b/.test(flags),
+      scrollable: /\bscroll\b/.test(flags),
+      raw: line[0]
+    });
+  }
+
+  // Standard Android uiautomator XML format.
+  const xmlNodeRe = /<node\b[^>]*>/g;
+  const attr = (tag, name) => new RegExp(`${name}="([^"]*)"`).exec(tag)?.[1] || '';
+  let xml;
+  while ((xml = xmlNodeRe.exec(uiTree)) !== null) {
+    const tag = xml[0];
+    const b = /bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/.exec(tag);
+    if (!b) continue;
+    const x1 = Number(b[1]), y1 = Number(b[2]), x2 = Number(b[3]), y2 = Number(b[4]);
+    nodes.push({
+      className: decodeUiValue(attr(tag, 'class')),
+      text: decodeUiValue(attr(tag, 'text')),
+      desc: decodeUiValue(attr(tag, 'content-desc')),
+      resId: decodeUiValue(attr(tag, 'resource-id')),
+      bounds: { x1, y1, x2, y2, x: Math.floor((x1 + x2) / 2), y: Math.floor((y1 + y2) / 2), width: x2 - x1, height: y2 - y1 },
+      clickable: attr(tag, 'clickable') === 'true',
+      editable: /EditText/i.test(attr(tag, 'class')) || attr(tag, 'editable') === 'true',
+      scrollable: attr(tag, 'scrollable') === 'true',
+      raw: tag
+    });
+  }
+
+  return nodes.filter((node) => node.bounds.width > 0 && node.bounds.height > 0);
+}
+
 function extractVisibleText(uiTree = '') {
   const out = [];
-  const re = /text="([^"]*)"/g;
-  let m;
-  while ((m = re.exec(uiTree)) !== null) {
-    const t = (m[1] || '').trim();
-    if (t) out.push(t);
+  for (const node of parseUiTreeNodes(uiTree)) {
+    for (const value of [node.text, node.desc]) {
+      const text = decodeUiValue(value);
+      if (text && !out.includes(text)) out.push(text);
+    }
   }
-  return [...new Set(out)];
+  return out;
+}
+
+function scoreNodeForQuery(node, query, { editable = false } = {}) {
+  const q = normalizeText(query);
+  const text = normalizeText(node.text);
+  const desc = normalizeText(node.desc);
+  const resId = normalizeText(node.resId);
+  const haystacks = [text, desc, resId].filter(Boolean);
+  if (!q || haystacks.length === 0) return -1;
+
+  let score = -1;
+  for (const value of haystacks) {
+    if (value === q) score = Math.max(score, 100);
+    else if (value.startsWith(q)) score = Math.max(score, 85);
+    else if (value.includes(q)) score = Math.max(score, 70);
+  }
+  if (score < 0) return -1;
+  if (editable && node.editable) score += 40;
+  if (!editable && node.clickable) score += 25;
+  if (node.text) score += 8;
+  if (node.desc) score += 5;
+  if (node.bounds.width >= 24 && node.bounds.height >= 24) score += 5;
+  if (node.bounds.y1 < 0 || node.bounds.x1 < 0) score -= 20;
+  return score;
+}
+
+function findBestNodeByText(uiTree = '', query = '', options = {}) {
+  return parseUiTreeNodes(uiTree)
+    .map((node) => ({ node, score: scoreNodeForQuery(node, query, options) }))
+    .filter((item) => item.score >= 0)
+    .sort((a, b) => b.score - a.score || a.node.bounds.y1 - b.node.bounds.y1)[0]?.node || null;
+}
+
+function findBestEditableNode(uiTree = '', hint = '') {
+  const nodes = parseUiTreeNodes(uiTree);
+  if (hint) {
+    const hinted = findBestNodeByText(uiTree, hint, { editable: true });
+    if (hinted) return hinted;
+  }
+  return nodes
+    .filter((node) => node.editable)
+    .sort((a, b) => (b.clickable ? 1 : 0) - (a.clickable ? 1 : 0) || a.bounds.y1 - b.bounds.y1)[0] || null;
 }
 
 function findNodeBoundsByText(uiTree = '', query = '') {
-  const safe = query.toLowerCase();
-  const nodeRe = /<node\b[^>]*>/g;
-  const boundsRe = /bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/;
-  const textRe = /text="([^"]*)"/;
-  const descRe = /content-desc="([^"]*)"/;
-  let n;
-  while ((n = nodeRe.exec(uiTree)) !== null) {
-    const tag = n[0];
-    const t = (textRe.exec(tag)?.[1] || '').toLowerCase();
-    const d = (descRe.exec(tag)?.[1] || '').toLowerCase();
-    if (!t.includes(safe) && !d.includes(safe)) continue;
-    const b = boundsRe.exec(tag);
-    if (!b) continue;
-    const x1 = Number(b[1]), y1 = Number(b[2]), x2 = Number(b[3]), y2 = Number(b[4]);
-    return { x: Math.floor((x1 + x2) / 2), y: Math.floor((y1 + y2) / 2) };
-  }
-  return null;
+  const node = findBestNodeByText(uiTree, query);
+  return node ? { x: node.bounds.x, y: node.bounds.y, node } : null;
 }
 
-const SYNC_CALL_TOOLS = ['vayu_read_screen', 'vayu_wait_for_text', 'vayu_find_and_tap', 'vayu_open_url_and_wait'];
+function summarizeUi(uiTree = '') {
+  const nodes = parseUiTreeNodes(uiTree);
+  const text = extractVisibleText(uiTree).join('\n');
+  const elements = nodes
+    .filter((node) => node.clickable || node.editable || node.scrollable || node.text || node.desc)
+    .slice(0, 80)
+    .map((node, index) => ({
+      index,
+      text: node.text,
+      desc: node.desc,
+      resId: node.resId,
+      className: node.className,
+      clickable: node.clickable,
+      editable: node.editable,
+      scrollable: node.scrollable,
+      bounds: node.bounds
+    }));
+  return { screenText: text, elements, elementCount: nodes.length };
+}
+
+const SYNC_CALL_TOOLS = ['vayu_read_screen', 'vayu_screen_text', 'vayu_wait_for_text', 'vayu_find_and_tap', 'vayu_type_in_field', 'vayu_scroll_to_text', 'vayu_assert_element_visible', 'vayu_open_url_and_wait'];
 
 app.get('/api/call', (req, res) => {
   res.json({
@@ -367,18 +487,19 @@ const handleSyncToolCall = async (req, res) => {
   const submitAndWait = async (type, payload = {}) => {
     const requestId = crypto.randomUUID();
     const dev = devices.get(targetDevice);
-    dev.pendingCommands.push({ requestId, type, ...payload, timestamp: Date.now() });
+    dev.pendingCommands.push({ requestId, type: normalizeDeviceCommandType(type), ...payload, timestamp: Date.now() });
     const result = await waitForResponse(requestId, timeoutMs);
     if (!result.ok) return { ok: false, error: result.error, requestId, deviceId: targetDevice };
+    if (result.response?.type === 'error') return { ok: false, error: result.response.message || 'Device returned error', requestId, deviceId: targetDevice, result: result.response };
     return { ok: true, requestId, deviceId: targetDevice, result: result.response };
   };
 
   try {
-    if (tool === 'vayu_read_screen') {
-      const r = await submitAndWait('get_screenshot_and_ui', {});
+    if (tool === 'vayu_read_screen' || tool === 'vayu_screen_text') {
+      const r = await submitAndWait('screenshot_and_ui', {});
       if (!r.ok) return res.status(504).json(r);
       const uiTree = r.result.uiTree || '';
-      return res.json({ ...r, screenText: extractVisibleText(uiTree).join('\n') });
+      return res.json({ ...r, ...summarizeUi(uiTree) });
     }
 
     if (tool === 'vayu_wait_for_text') {
@@ -386,7 +507,7 @@ const handleSyncToolCall = async (req, res) => {
       if (!text) return res.status(400).json({ ok: false, error: 'args.text required' });
       const end = Date.now() + timeoutMs;
       while (Date.now() < end) {
-        const r = await submitAndWait('get_ui_tree', {});
+        const r = await submitAndWait('ui_tree', {});
         if (!r.ok) return res.status(504).json(r);
         const ui = (r.result.uiTree || '').toLowerCase();
         if (ui.includes(text.toLowerCase())) return res.json({ ...r, matched: true, text });
@@ -398,13 +519,50 @@ const handleSyncToolCall = async (req, res) => {
     if (tool === 'vayu_find_and_tap') {
       const text = (args.text || '').trim();
       if (!text) return res.status(400).json({ ok: false, error: 'args.text required' });
-      const look = await submitAndWait('get_screenshot_and_ui', {});
+      const look = await submitAndWait('screenshot_and_ui', {});
       if (!look.ok) return res.status(504).json(look);
       const point = findNodeBoundsByText(look.result.uiTree || '', text);
       if (!point) return res.status(404).json({ ok: false, error: `Element text not found: ${text}` });
       const tap = await submitAndWait('tap', { x: point.x, y: point.y, capture: true });
       if (!tap.ok) return res.status(504).json(tap);
       return res.json({ ...tap, tapped: point, matchedText: text });
+    }
+
+    if (tool === 'vayu_type_in_field') {
+      const text = args.text || '';
+      const fieldHint = (args.fieldHint || args.hint || '').trim();
+      if (!text) return res.status(400).json({ ok: false, error: 'args.text required' });
+      const look = await submitAndWait('screenshot_and_ui', {});
+      if (!look.ok) return res.status(504).json(look);
+      const node = findBestEditableNode(look.result.uiTree || '', fieldHint);
+      if (!node) return res.status(404).json({ ok: false, error: `Editable field not found${fieldHint ? ` for: ${fieldHint}` : ''}`, ...summarizeUi(look.result.uiTree || '') });
+      const typed = await submitAndWait('type_text', { x: node.bounds.x, y: node.bounds.y, text, capture: true });
+      if (!typed.ok) return res.status(504).json(typed);
+      return res.json({ ...typed, typedInto: node.bounds, fieldHint });
+    }
+
+    if (tool === 'vayu_scroll_to_text') {
+      const text = (args.text || '').trim();
+      if (!text) return res.status(400).json({ ok: false, error: 'args.text required' });
+      const maxScrolls = Math.min(Number(args.maxScrolls || 6), 12);
+      for (let i = 0; i <= maxScrolls; i++) {
+        const look = await submitAndWait('screenshot_and_ui', {});
+        if (!look.ok) return res.status(504).json(look);
+        const point = findNodeBoundsByText(look.result.uiTree || '', text);
+        if (point) return res.json({ ...look, matched: true, text, point, scrolls: i, ...summarizeUi(look.result.uiTree || '') });
+        await submitAndWait('swipe', { x: 540, y: 1650, x2: 540, y2: 550, duration: 450, capture: false });
+        await new Promise((x) => setTimeout(x, 500));
+      }
+      return res.status(404).json({ ok: false, error: `Text not found after scrolling: ${text}` });
+    }
+
+    if (tool === 'vayu_assert_element_visible') {
+      const text = (args.text || '').trim();
+      if (!text) return res.status(400).json({ ok: false, error: 'args.text required' });
+      const look = await submitAndWait('ui_tree', {});
+      if (!look.ok) return res.status(504).json(look);
+      const point = findNodeBoundsByText(look.result.uiTree || '', text);
+      return res.json({ ok: true, visible: Boolean(point), text, point, deviceId: targetDevice });
     }
 
     if (tool === 'vayu_open_url_and_wait') {
@@ -417,7 +575,7 @@ const handleSyncToolCall = async (req, res) => {
         const wait = await (async () => {
           const end = Date.now() + timeoutMs;
           while (Date.now() < end) {
-            const r = await submitAndWait('get_ui_tree', {});
+            const r = await submitAndWait('ui_tree', {});
             if (!r.ok) return r;
             if ((r.result.uiTree || '').toLowerCase().includes(waitText.toLowerCase())) return { ok: true, result: r.result };
             await new Promise((x) => setTimeout(x, 700));
@@ -442,6 +600,72 @@ const handleSyncToolCall = async (req, res) => {
 app.post('/api/call', handleSyncToolCall);
 app.post('/api/tools/call', handleSyncToolCall);
 app.post('/api/tool/call', handleSyncToolCall);
+
+function detectProviderFromKey(apiKey = '', baseUrl = '') {
+  if (/^AIza/i.test(apiKey)) return 'gemini';
+  if (/^nvapi-/i.test(apiKey)) return 'nvidia';
+  if (/^sk-/i.test(apiKey) || /openai/i.test(baseUrl)) return 'openai';
+  return baseUrl ? 'custom' : 'unknown';
+}
+
+function rankAgentModel(id = '', provider = '') {
+  const m = id.toLowerCase();
+  let score = 0;
+  if (/gpt-5|gemini-2\.5-pro|claude-4|o3/.test(m)) score += 100;
+  else if (/gpt-4\.1|gpt-4o|gemini-2\.5-flash|o4|nemotron/.test(m)) score += 90;
+  else if (/gemini-2\.0-flash|llama-3\.1-405|gpt-4/.test(m)) score += 80;
+  else if (/flash|mini|small|nano|lite/.test(m)) score += 55;
+  else score += 35;
+  if (/vision|4o|gpt-4\.1|gpt-5|gemini|vl|multimodal/.test(m)) score += 25;
+  if (/preview|experimental|exp|deprecated|embedding|tts|audio|image|moderation/.test(m)) score -= 30;
+  if (provider === 'gemini' && /generatecontent|gemini/.test(m)) score += 10;
+  return score;
+}
+
+async function fetchAvailableModels({ provider, apiKey, baseUrl = '' }) {
+  const headers = {};
+  let url;
+  if (provider === 'gemini') {
+    url = `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`;
+  } else if (provider === 'nvidia') {
+    url = 'https://integrate.api.nvidia.com/v1/models';
+    headers.Authorization = `Bearer ${apiKey}`;
+  } else {
+    url = `${(baseUrl || 'https://api.openai.com/v1').replace(/\/$/, '')}/models`;
+    headers.Authorization = `Bearer ${apiKey}`;
+  }
+  const response = await fetch(url, { headers });
+  const text = await response.text();
+  if (!response.ok) throw new Error(`Model list HTTP ${response.status}: ${text.slice(0, 250)}`);
+  const json = JSON.parse(text || '{}');
+  const rawModels = json.data || json.models || [];
+  return rawModels.map((model) => {
+    const id = (model.id || model.name || '').replace(/^models\//, '');
+    const methods = model.supportedGenerationMethods || [];
+    return { id, methods, raw: model };
+  }).filter((model) => model.id && !/embedding|tts|audio|image|moderation/i.test(model.id));
+}
+
+async function handleModelRecommend(req, res) {
+  try {
+    const input = req.method === 'GET' ? req.query : (req.body || {});
+    const apiKey = String(input.apiKey || process.env.VAYU_LLM_API_KEY || '').trim();
+    const baseUrl = String(input.baseUrl || '').trim();
+    const provider = String(input.provider || detectProviderFromKey(apiKey, baseUrl)).toLowerCase();
+    if (!apiKey) return res.status(400).json({ ok: false, error: 'apiKey is required (or set VAYU_LLM_API_KEY on Render)' });
+    const models = await fetchAvailableModels({ provider, apiKey, baseUrl });
+    const ranked = models
+      .filter((model) => provider !== 'gemini' || model.methods.length === 0 || model.methods.includes('generateContent'))
+      .map((model) => ({ id: model.id, provider, score: rankAgentModel(model.id, provider), supportsVisionLikely: /vision|4o|gpt-4\.1|gpt-5|gemini|vl|multimodal/i.test(model.id), methods: model.methods }))
+      .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id));
+    res.json({ ok: true, provider, recommended: ranked.slice(0, 8), selected: ranked[0] || null, count: ranked.length });
+  } catch (e) {
+    res.status(502).json({ ok: false, error: e.message || String(e) });
+  }
+}
+
+app.get('/api/models/recommend', handleModelRecommend);
+app.post('/api/models/recommend', handleModelRecommend);
 
 // ─── MCP Client: List Devices ───
 app.get('/api/devices', (req, res) => {
@@ -520,6 +744,7 @@ app.get('/', (req, res) => {
       'POST /api/call': 'Synchronous tool bridge (returns result directly)',
       'GET  /api/call': 'Synchronous bridge usage/deploy check',
       'POST /api/tools/call': 'Alias for POST /api/call',
+      'GET/POST /api/models/recommend': 'List and rank available LLMs for agentic V.A.Y.U tasks',
       'GET  /api/response/:requestId': 'MCP client poll for response',
       'GET  /api/devices': 'List connected devices',
       'GET  /api/device/:deviceId/status': 'Get device status',
@@ -552,6 +777,59 @@ try {
       name: 'vayu_look',
       description: 'Observe the current phone screen. Captures screenshot AND UI tree. Use this FIRST to understand what\'s on screen before taking any action.',
       inputSchema: { type: 'object', properties: {} },
+    },
+    {
+      name: 'vayu_read_screen',
+      description: 'SMART: Read current screen as plain text plus a compact list of tappable/editable elements. Use this before choosing actions; easier than raw UI XML.',
+      inputSchema: { type: 'object', properties: {} },
+    },
+    {
+      name: 'vayu_find_and_tap',
+      description: 'SMART SELECTOR: Find a visible UI element by text/content description/resource id and tap its center. Avoid coordinate guessing.',
+      inputSchema: {
+        type: 'object',
+        properties: { text: { type: 'string', description: 'Visible text, content description, or resource id fragment to tap' } },
+        required: ['text'],
+      },
+    },
+    {
+      name: 'vayu_type_in_field',
+      description: 'SMART SELECTOR: Type text into an editable field found by hint/label/resource id. Avoid coordinate guessing.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          text: { type: 'string', description: 'Text to type' },
+          fieldHint: { type: 'string', description: 'Optional field label/hint/resource id, e.g. Search, Email, Prompt' },
+        },
+        required: ['text'],
+      },
+    },
+    {
+      name: 'vayu_wait_for_text',
+      description: 'SMART WAIT: Wait until text appears on screen, then return the matching UI state.',
+      inputSchema: {
+        type: 'object',
+        properties: { text: { type: 'string' }, timeoutMs: { type: 'integer', description: 'Max wait in milliseconds' } },
+        required: ['text'],
+      },
+    },
+    {
+      name: 'vayu_scroll_to_text',
+      description: 'SMART SELECTOR: Scroll down until text is visible and return its coordinates/summary.',
+      inputSchema: {
+        type: 'object',
+        properties: { text: { type: 'string' }, maxScrolls: { type: 'integer' } },
+        required: ['text'],
+      },
+    },
+    {
+      name: 'vayu_assert_element_visible',
+      description: 'SMART CHECK: Return true/false if text/content description/resource id is visible.',
+      inputSchema: {
+        type: 'object',
+        properties: { text: { type: 'string' } },
+        required: ['text'],
+      },
     },
     {
       name: 'vayu_tap',
@@ -799,6 +1077,75 @@ try {
       const { name, arguments: args } = request.params;
       try {
         switch (name) {
+          case 'vayu_read_screen': {
+            const r = await mcpSendCommand('screenshot_and_ui');
+            if (r.isError) return r;
+            const p = r.raw || {};
+            const summary = summarizeUi(p.uiTree || '');
+            const c = [];
+            if (p.base64 && p.base64.length > 100) c.push({ type: 'image', data: p.base64, mimeType: p.mimeType || 'image/jpeg' });
+            c.push({ type: 'text', text: `Screen text:
+${summary.screenText || '(no text)'}
+
+Smart elements:
+${JSON.stringify(summary.elements.slice(0, 40), null, 2)}` });
+            return { content: c };
+          }
+          case 'vayu_find_and_tap': {
+            const lookR = await mcpSendCommand('screenshot_and_ui');
+            if (lookR.isError) return lookR;
+            const p = lookR.raw || {};
+            const point = findNodeBoundsByText(p.uiTree || '', args?.text || '');
+            if (!point) return { content: [{ type: 'text', text: `Element not found: ${args?.text}
+
+${JSON.stringify(summarizeUi(p.uiTree || ''), null, 2)}` }], isError: true };
+            const tapR = await mcpSendCommand('tap', { x: point.x, y: point.y });
+            return tapR.isError ? tapR : mcpFormatCapture(tapR, `find_and_tap(${args?.text}) @ ${point.x},${point.y}`);
+          }
+          case 'vayu_type_in_field': {
+            const lookR = await mcpSendCommand('screenshot_and_ui');
+            if (lookR.isError) return lookR;
+            const p = lookR.raw || {};
+            const node = findBestEditableNode(p.uiTree || '', args?.fieldHint || '');
+            if (!node) return { content: [{ type: 'text', text: `Editable field not found.
+
+${JSON.stringify(summarizeUi(p.uiTree || ''), null, 2)}` }], isError: true };
+            const typeR = await mcpSendCommand('type_text', { x: node.bounds.x, y: node.bounds.y, text: args?.text || '' });
+            return typeR.isError ? typeR : mcpFormatCapture(typeR, `type_in_field(${args?.fieldHint || 'first editable'})`);
+          }
+          case 'vayu_wait_for_text': {
+            const end = Date.now() + Math.min(args?.timeoutMs || 45000, 120000);
+            while (Date.now() < end) {
+              const r = await mcpSendCommand('ui_tree');
+              if (r.isError) return r;
+              const uiTree = r.raw?.uiTree || '';
+              if (findNodeBoundsByText(uiTree, args?.text || '') || uiTree.toLowerCase().includes(String(args?.text || '').toLowerCase())) {
+                return { content: [{ type: 'text', text: `Found text: ${args?.text}
+
+${JSON.stringify(summarizeUi(uiTree), null, 2)}` }] };
+              }
+              await new Promise(resolve => setTimeout(resolve, 800));
+            }
+            return { content: [{ type: 'text', text: `Timeout waiting for text: ${args?.text}` }], isError: true };
+          }
+          case 'vayu_scroll_to_text': {
+            const maxScrolls = Math.min(args?.maxScrolls || 6, 12);
+            for (let i = 0; i <= maxScrolls; i++) {
+              const lookR = await mcpSendCommand('screenshot_and_ui');
+              if (lookR.isError) return lookR;
+              const p = lookR.raw || {};
+              const point = findNodeBoundsByText(p.uiTree || '', args?.text || '');
+              if (point) return mcpFormatCapture({ raw: { ...p, success: true, scrolls: i, text: args?.text, point } }, `scroll_to_text(${args?.text})`);
+              await mcpSendCommand('swipe', { x: 540, y: 1650, x2: 540, y2: 550, duration: 450, capture: false });
+            }
+            return { content: [{ type: 'text', text: `Text not found after scrolling: ${args?.text}` }], isError: true };
+          }
+          case 'vayu_assert_element_visible': {
+            const r = await mcpSendCommand('ui_tree');
+            if (r.isError) return r;
+            const point = findNodeBoundsByText(r.raw?.uiTree || '', args?.text || '');
+            return { content: [{ type: 'text', text: JSON.stringify({ visible: Boolean(point), text: args?.text, point }, null, 2) }] };
+          }
           case 'vayu_tap': {
             const r = await mcpSendCommand('tap', { x: args?.x, y: args?.y });
             return r.isError ? r : mcpFormatCapture(r, `tap(${args?.x}, ${args?.y})`);
@@ -1055,7 +1402,7 @@ try {
     // Queue the command regardless — device will pick it up when it reconnects
     device.pendingCommands.push({
       requestId,
-      type,
+      type: normalizeDeviceCommandType(type),
       ...params,
       timestamp: Date.now()
     });

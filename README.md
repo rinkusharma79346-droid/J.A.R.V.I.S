@@ -415,3 +415,21 @@ curl -X POST https://<your-render-service>.onrender.com/api/call \
 
 If your Render service accidentally has **Root Directory blank**, this repo now also includes a root `npm start` fallback that launches the same relay server.
 
+
+Smart sync tools now available through `POST /api/call`:
+
+- `vayu_read_screen` / `vayu_screen_text` — returns plain screen text and smart element metadata.
+- `vayu_find_and_tap` — taps by visible text/content description/resource id.
+- `vayu_type_in_field` — types into an editable field by optional label/hint.
+- `vayu_wait_for_text`, `vayu_scroll_to_text`, `vayu_assert_element_visible` — reliable wait/scroll/check helpers.
+
+To rank the best models available on a provider key for V.A.Y.U-style agentic phone control:
+
+```bash
+curl -X POST https://<your-render-service>.onrender.com/api/models/recommend \
+  -H "Content-Type: application/json" \
+  -d '{"provider":"openai","apiKey":"YOUR_KEY"}'
+```
+
+You can also set `VAYU_LLM_API_KEY` on Render and call `/api/models/recommend` without sending the key in the curl body.
+

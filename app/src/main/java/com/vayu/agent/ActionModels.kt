@@ -11,7 +11,8 @@ data class AgentAction(
     val direction: String = "",
     val app: String = "",
     val reason: String = "",
-    val delay: Long = 0L
+    val delay: Long = 0L,
+    val duration: Long = 0L
 )
 
 // ─── Sequence Action (for batch commands) ───
@@ -28,7 +29,7 @@ data class SequenceAction(
 ) {
     fun toAgentAction(): AgentAction = AgentAction(
         action = action, x = x, y = y, x2 = x2, y2 = y2,
-        text = text, app = app, delay = delay
+        text = text, app = app, delay = delay, duration = duration
     )
 }
 
@@ -74,4 +75,13 @@ data class McpCommandState(
     val currentCommand: String = "",
     val commandCount: Int = 0,
     val lastAction: String = ""
+)
+
+
+// ─── Direct UI Selection Result ───
+data class UiActionResult(
+    val success: Boolean,
+    val message: String = "",
+    val x: Int = 0,
+    val y: Int = 0
 )

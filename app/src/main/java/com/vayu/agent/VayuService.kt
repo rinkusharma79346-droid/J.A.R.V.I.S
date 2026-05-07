@@ -2,6 +2,7 @@ package com.vayu.agent
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
+import android.accessibilityservice.AccessibilityService.GestureResultCallback
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Path
@@ -215,7 +216,7 @@ class VayuService : AccessibilityService() {
                     )
 
                     val action = try {
-                        provider.getNextAction(request)
+                        provider.getNextAction(request).let { it.copy(action = it.action.uppercase().trim()) }
                     } catch (e: Exception) {
                         Log.e(TAG, "Provider call failed: ${e.message}")
                         AgentAction(action = "FAIL", reason = "API error: ${e.message}")
@@ -380,7 +381,7 @@ class VayuService : AccessibilityService() {
 
     @android.annotation.SuppressLint("NewApi")
     suspend fun autoCapture(): Pair<String?, String?> {
-        delay(80)
+        delay(350)
         val b64 = captureScreen()
         val uiTree = withContext(Dispatchers.Main) {
             try { parseUITree(rootInActiveWindow) } catch (e: Exception) { null }
@@ -394,10 +395,11 @@ class VayuService : AccessibilityService() {
 
     suspend fun executeDirectAction(action: String, x: Int, y: Int, x2: Int, y2: Int, text: String, @Suppress("UNUSED_PARAMETER") duration: Long = 0L) {
         val agentAction = AgentAction(
-            action = action,
+            action = action.uppercase(),
             x = x, y = y,
             x2 = x2, y2 = y2,
-            text = text
+            text = text,
+            duration = duration
         )
         try {
             executeAction(agentAction)
@@ -436,10 +438,10 @@ class VayuService : AccessibilityService() {
             }
 
             val delayMs = if (sa.delay > 0) sa.delay else when (sa.action) {
-                "TAP" -> 50L
-                "LONG_PRESS" -> 300L
-                "SWIPE", "SCROLL" -> 200L
-                "TYPE" -> 150L
+                "TAP" -> 350L
+                "LONG_PRESS" -> 700L
+                "SWIPE", "SCROLL" -> 800L
+                "TYPE" -> 600L
                 "OPEN_APP" -> 1000L
                 "PRESS_BACK", "PRESS_HOME", "PRESS_RECENTS" -> 150L
                 "WAIT" -> 300L
@@ -535,6 +537,33 @@ class VayuService : AccessibilityService() {
         return autoCapture()
     }
 
+    suspend fun findAndTapTextPublic(query: String): UiActionResult {
+        val node = findBestNodeByText(rootInActiveWindow, query, preferClickable = true)
+            ?: return UiActionResult(false, "No visible element matched: $query")
+        val rect = android.graphics.Rect()
+        node.getBoundsInScreen(rect)
+        val x = rect.centerX()
+        val y = rect.centerY()
+        executeAction(AgentAction(action = "TAP", x = x, y = y))
+        return UiActionResult(true, "Tapped best match for: $query", x, y)
+    }
+
+    suspend fun typeInFieldPublic(text: String, hint: String = ""): UiActionResult {
+        val root = rootInActiveWindow ?: return UiActionResult(false, "No active window")
+        val node = if (hint.isNotBlank()) findBestNodeByText(root, hint, preferEditable = true) else null
+        val target = node ?: findAnyEditableNode(root) ?: findFocusedNode(root)
+            ?: return UiActionResult(false, "No editable/focused field found")
+        val rect = android.graphics.Rect()
+        target.getBoundsInScreen(rect)
+        val x = rect.centerX()
+        val y = rect.centerY()
+        executeAction(AgentAction(action = "TAP", x = x, y = y))
+        target.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+        delay(150)
+        typeWithClipboard(text)
+        return UiActionResult(true, "Typed into ${if (hint.isBlank()) "focused field" else hint}", x, y)
+    }
+
     // ════════════════════════════════════════════════
     //  ENHANCED TYPE
     // ════════════════════════════════════════════════
@@ -563,6 +592,42 @@ class VayuService : AccessibilityService() {
         } catch (e: Exception) {
             Log.e(TAG, "typeWithClipboard failed: ${e.message}", e)
         }
+    }
+
+    private fun findBestNodeByText(root: AccessibilityNodeInfo?, query: String, preferClickable: Boolean = false, preferEditable: Boolean = false): AccessibilityNodeInfo? {
+        if (root == null || query.isBlank()) return null
+        val q = query.lowercase().trim()
+        var best: Pair<AccessibilityNodeInfo, Int>? = null
+
+        fun scoreNode(node: AccessibilityNodeInfo): Int {
+            val values = listOfNotNull(
+                node.text?.toString(),
+                node.contentDescription?.toString(),
+                node.viewIdResourceName
+            ).map { it.lowercase().trim() }.filter { it.isNotBlank() }
+            var score = -1
+            for (value in values) {
+                score = maxOf(score, when {
+                    value == q -> 100
+                    value.startsWith(q) -> 85
+                    value.contains(q) -> 70
+                    else -> -1
+                })
+            }
+            if (score < 0) return -1
+            if (preferClickable && node.isClickable) score += 25
+            if (preferEditable && node.isEditable) score += 40
+            return score
+        }
+
+        fun walk(node: AccessibilityNodeInfo) {
+            val score = scoreNode(node)
+            if (score >= 0 && (best == null || score > best!!.second)) best = node to score
+            for (i in 0 until node.childCount) node.getChild(i)?.let { walk(it) }
+        }
+
+        walk(root)
+        return best?.first
     }
 
     private fun findFocusedNode(root: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
@@ -722,6 +787,33 @@ class VayuService : AccessibilityService() {
     //  ACTION EXECUTOR
     // ════════════════════════════════════════════════
 
+    private suspend fun dispatchGestureAndWait(gesture: GestureDescription, label: String): Boolean = suspendCancellableCoroutine { cont ->
+        var resumed = false
+        fun finish(result: Boolean) {
+            if (!resumed && cont.isActive) {
+                resumed = true
+                cont.resume(result)
+            }
+        }
+        try {
+            val accepted = dispatchGesture(gesture, object : GestureResultCallback() {
+                override fun onCompleted(gestureDescription: GestureDescription?) {
+                    Log.d(TAG, "Gesture completed: $label")
+                    finish(true)
+                }
+
+                override fun onCancelled(gestureDescription: GestureDescription?) {
+                    Log.w(TAG, "Gesture cancelled: $label")
+                    finish(false)
+                }
+            }, null)
+            if (!accepted) finish(false)
+        } catch (e: Exception) {
+            Log.e(TAG, "dispatchGesture $label failed: ${e.message}")
+            finish(false)
+        }
+    }
+
     private suspend fun executeAction(action: AgentAction) {
         try {
             when (action.action) {
@@ -730,7 +822,7 @@ class VayuService : AccessibilityService() {
                     val gesture = GestureDescription.Builder()
                         .addStroke(GestureDescription.StrokeDescription(path, 0, 50))
                         .build()
-                    try { dispatchGesture(gesture, null, null) } catch (e: Exception) { Log.e(TAG, "dispatchGesture TAP failed: ${e.message}") }
+                    dispatchGestureAndWait(gesture, "TAP(${action.x},${action.y})")
                     Log.d(TAG, "TAP at (${action.x}, ${action.y})")
                 }
 
@@ -739,11 +831,11 @@ class VayuService : AccessibilityService() {
                         moveTo(action.x.toFloat(), action.y.toFloat())
                         lineTo(action.x2.toFloat(), action.y2.toFloat())
                     }
-                    val duration = if (action.action == "SCROLL") 400L else 300L
+                    val duration = action.duration.takeIf { it > 0 } ?: if (action.action == "SCROLL") 550L else 450L
                     val gesture = GestureDescription.Builder()
                         .addStroke(GestureDescription.StrokeDescription(path, 0, duration))
                         .build()
-                    try { dispatchGesture(gesture, null, null) } catch (e: Exception) { Log.e(TAG, "dispatchGesture ${action.action} failed: ${e.message}") }
+                    dispatchGestureAndWait(gesture, "${action.action}(${action.x},${action.y}→${action.x2},${action.y2})")
                     Log.d(TAG, "${action.action} from (${action.x},${action.y}) to (${action.x2},${action.y2})")
                 }
 
@@ -752,9 +844,9 @@ class VayuService : AccessibilityService() {
                     val tapGesture = GestureDescription.Builder()
                         .addStroke(GestureDescription.StrokeDescription(path, 0, 50))
                         .build()
-                    try { dispatchGesture(tapGesture, null, null) } catch (e: Exception) { Log.e(TAG, "dispatchGesture TYPE tap failed: ${e.message}") }
+                    dispatchGestureAndWait(tapGesture, "TYPE tap(${action.x},${action.y})")
 
-                    delay(200)
+                    delay(300)
 
                     val node = findNodeAt(rootInActiveWindow, action.x, action.y)
                     var typed = false
@@ -868,7 +960,7 @@ class VayuService : AccessibilityService() {
                     val gesture = GestureDescription.Builder()
                         .addStroke(GestureDescription.StrokeDescription(path, 0, 500))
                         .build()
-                    try { dispatchGesture(gesture, null, null) } catch (e: Exception) { Log.e(TAG, "dispatchGesture LONG_PRESS failed: ${e.message}") }
+                    dispatchGestureAndWait(gesture, "LONG_PRESS(${action.x},${action.y})")
                     Log.d(TAG, "LONG_PRESS at (${action.x}, ${action.y})")
                 }
 

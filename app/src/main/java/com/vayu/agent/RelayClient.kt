@@ -349,12 +349,21 @@ object RelayClient {
     //  COMMAND HANDLER
     // ════════════════════════════════════════════════
 
+    private fun normalizeCommandType(type: String): String = when (type.lowercase()) {
+        "get_ui_tree", "read_ui_tree" -> "ui_tree"
+        "get_screenshot_and_ui", "read_screen", "screen_text" -> "screenshot_and_ui"
+        "find_and_tap", "tap_text" -> "find_and_tap"
+        "type_in_field", "type_by_hint" -> "type_in_field"
+        else -> type.lowercase()
+    }
+
     private fun handleCommand(cmd: JsonObject) {
-        val type = cmd.get("type")?.asString ?: return
+        val rawType = cmd.get("type")?.asString ?: return
+        val type = normalizeCommandType(rawType)
         val requestId = cmd.get("requestId")?.asString ?: ""
         val capture = cmd.get("capture")?.asBoolean ?: true
 
-        Log.d(TAG, "Command received: $type (requestId: $requestId, capture: $capture)")
+        Log.d(TAG, "Command received: $rawType → $type (requestId: $requestId, capture: $capture)")
 
         mcpActive.value = true
         mcpSessionActive.value = true
@@ -379,6 +388,8 @@ object RelayClient {
             "screenshot_and_ui" -> handleScreenshotAndUi(requestId)
             "sequence" -> handleSequence(cmd, requestId)
             "open_chrome_url" -> handleOpenChromeUrl(cmd, requestId)
+            "find_and_tap" -> handleFindAndTap(cmd, requestId)
+            "type_in_field" -> handleTypeInField(cmd, requestId)
             "execute" -> handleExecute(cmd, requestId)
             "status" -> handleStatus(requestId)
             "kill" -> handleKill(requestId)
@@ -555,6 +566,35 @@ object RelayClient {
                 sendResponse(requestId, mapOf("type" to "chrome_url_done", "url" to url, "success" to true, "deviceId" to getDeviceId(), "base64" to (b64 ?: ""), "mimeType" to "image/jpeg", "uiTree" to (uiTree ?: "")))
                 mcpLastAction.value = "chrome_url_done"
             } catch (e: Exception) { sendResponse(requestId, mapOf("type" to "error", "message" to e.message)) }
+            finally { mcpCommandFinished() }
+        }
+    }
+
+    private fun handleFindAndTap(cmd: JsonObject, requestId: String) {
+        val text = cmd.get("text")?.asString ?: cmd.get("query")?.asString ?: ""
+        val service = serviceRef ?: run { sendResponse(requestId, mapOf("type" to "error", "message" to "Service not available")); mcpCommandFinished(); return }
+        if (text.isBlank()) { sendResponse(requestId, mapOf("type" to "error", "message" to "text is required")); mcpCommandFinished(); return }
+        scope.launch {
+            try {
+                val result = withContext(Dispatchers.Main) { service.findAndTapTextPublic(text) }
+                val (b64, uiTree) = service.autoCapture()
+                sendResponse(requestId, mapOf("type" to "find_and_tap_done", "text" to text, "success" to result.success, "x" to result.x, "y" to result.y, "message" to result.message, "deviceId" to getDeviceId(), "base64" to (b64 ?: ""), "mimeType" to "image/jpeg", "uiTree" to (uiTree ?: "")))
+            } catch (e: Exception) { sendResponse(requestId, mapOf("type" to "error", "message" to e.message, "deviceId" to getDeviceId())) }
+            finally { mcpCommandFinished() }
+        }
+    }
+
+    private fun handleTypeInField(cmd: JsonObject, requestId: String) {
+        val text = cmd.get("text")?.asString ?: ""
+        val hint = cmd.get("fieldHint")?.asString ?: cmd.get("hint")?.asString ?: ""
+        val service = serviceRef ?: run { sendResponse(requestId, mapOf("type" to "error", "message" to "Service not available")); mcpCommandFinished(); return }
+        if (text.isBlank()) { sendResponse(requestId, mapOf("type" to "error", "message" to "text is required")); mcpCommandFinished(); return }
+        scope.launch {
+            try {
+                val result = withContext(Dispatchers.Main) { service.typeInFieldPublic(text, hint) }
+                val (b64, uiTree) = service.autoCapture()
+                sendResponse(requestId, mapOf("type" to "type_in_field_done", "text" to text, "fieldHint" to hint, "success" to result.success, "x" to result.x, "y" to result.y, "message" to result.message, "deviceId" to getDeviceId(), "base64" to (b64 ?: ""), "mimeType" to "image/jpeg", "uiTree" to (uiTree ?: "")))
+            } catch (e: Exception) { sendResponse(requestId, mapOf("type" to "error", "message" to e.message, "deviceId" to getDeviceId())) }
             finally { mcpCommandFinished() }
         }
     }
