@@ -10,7 +10,9 @@
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "start": "node server.js",
+    "start:relay": "node vayu-relay/server.js"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
@@ -22,7 +24,8 @@
     "vite": "^6.2.0",
     "express": "^4.21.2",
     "dotenv": "^17.2.3",
-    "motion": "^12.23.24"
+    "motion": "^12.23.24",
+    "@modelcontextprotocol/sdk": "^1.29.0"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

@@ -126,7 +126,18 @@ class HUDService : Service() {
         // FIX #1 (CRITICAL): Call startForeground() IMMEDIATELY in onCreate().
         // Without this, Android 10 kills the service after ~5 seconds, and on Samsung
         // devices this kills the entire app process, causing "keeps stopping" crash.
-        startForegroundNotification()
+        // On Android 13+, this can throw SecurityException when notifications are denied.
+        try {
+            startForegroundNotification()
+        } catch (se: SecurityException) {
+            Log.e(TAG, "Cannot start foreground HUD without notification permission", se)
+            stopSelf()
+            return
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start foreground HUD", e)
+            stopSelf()
+            return
+        }
 
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         overlayView = LayoutInflater.from(this).inflate(R.layout.overlay_hud, null)

@@ -1,5 +1,6 @@
 package com.vayu.agent
 
+import android.Manifest
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -11,6 +12,8 @@ import android.view.animation.Animation
 import android.view.animation.DecelerateInterpolator
 import android.view.animation.OvershootInterpolator
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.vayu.agent.databinding.ActivityMainBinding
 import kotlinx.coroutines.flow.collectLatest
@@ -41,6 +44,7 @@ class MainActivity : AppCompatActivity() {
 
         // ─── Permissions button ───
         binding.btnPerms.setOnClickListener {
+            ensureNotificationPermission()
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
             if (!Settings.canDrawOverlays(this)) {
                 startActivity(
@@ -57,6 +61,8 @@ class MainActivity : AppCompatActivity() {
             startActivity(Intent(this, SettingsActivity::class.java))
         }
 
+        ensureNotificationPermission()
+
         // ─── Execute button ───
         binding.btnExecute.setOnClickListener {
             val task = binding.etTask.text.toString().trim()
@@ -69,11 +75,22 @@ class MainActivity : AppCompatActivity() {
                 return@setOnClickListener
             }
             // FIX: Start HUD overlay as foreground service on API 26+ to prevent system kill
+            // Android 13+ also requires POST_NOTIFICATIONS for foreground service notifications.
+            ensureNotificationPermission()
+            if (!hasNotificationPermission()) {
+                binding.tvStatus.text = "Grant notification permission first!"
+                return@setOnClickListener
+            }
             val hudIntent = Intent(this, HUDService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                startForegroundService(hudIntent)
-            } else {
-                startService(hudIntent)
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    startForegroundService(hudIntent)
+                } else {
+                    startService(hudIntent)
+                }
+            } catch (e: Exception) {
+                binding.tvStatus.text = "Failed to start HUD: ${e.message}"
+                return@setOnClickListener
             }
             VayuService.startTask(task)
         }
@@ -185,6 +202,18 @@ class MainActivity : AppCompatActivity() {
         }
 
         updateApiStatus()
+    }
+
+    private fun hasNotificationPermission(): Boolean {
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun ensureNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !hasNotificationPermission()) {
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 101)
+        }
     }
 
     private fun configureVayuView() {
