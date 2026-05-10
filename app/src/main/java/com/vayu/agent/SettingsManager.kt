@@ -21,8 +21,8 @@ object SettingsManager {
 
     const val DEFAULT_RELAY_URL = "https://j-a-r-v-i-s-ktlh.onrender.com"
 
-    val GEMINI_MODELS = listOf("gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-pro", "gemini-1.5-flash")
-    val OPENAI_MODELS = listOf("gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano")
+    val GEMINI_MODELS = listOf("gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-pro", "gemini-1.5-flash")
+    val OPENAI_MODELS = listOf("gpt-5", "gpt-5-mini", "gpt-4.1", "gpt-4o", "gpt-4.1-mini", "gpt-4o-mini", "gpt-4-turbo")
     val NVIDIA_MODELS = listOf("nvidia/llama-3.1-nemotron-70b-instruct", "meta/llama-3.1-405b-instruct", "google/gemma-2-27b-it", "mistralai/mixtral-8x22b-instruct-v0.1")
     val CUSTOM_MODELS = listOf("default")
 
@@ -68,7 +68,7 @@ object SettingsManager {
         val apiKey = getApiKey(context, provider)
         val model = getModel(context, provider)
         val baseUrl = if (provider == "custom") getCustomBaseUrl(context) else ""
-        val supportsVision = when (provider) { "gemini" -> true; "openai" -> model.contains("4o") || model.contains("4-turbo"); "nvidia" -> false; else -> true }
+        val supportsVision = when (provider) { "gemini" -> true; "openai" -> model.contains("4o") || model.contains("4.1") || model.contains("4-turbo") || model.contains("5"); "nvidia" -> model.contains("vl", ignoreCase = true) || model.contains("vision", ignoreCase = true); else -> true }
         return ProviderConfig(provider, apiKey, model, baseUrl, supportsVision)
     }
 
